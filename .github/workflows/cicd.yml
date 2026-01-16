@@ -77,7 +77,7 @@ jobs:
   container-build-publish:
     name: Build and Publish Container Image
     needs: []
-    uses: githubabcs-devops/devsecops-reusable-workflows/.github/workflows/container.yml@main
+    uses: devopsabcs-engineering/devsecops-reusable-workflows/.github/workflows/container.yml@main
     with:
       # This is used for tagging the container image
       version: v1.0.0
