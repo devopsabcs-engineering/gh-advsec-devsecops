@@ -24,7 +24,7 @@ resource acr 'Microsoft.ContainerRegistry/registries@2023-01-01-preview' = {
     name: acrSku
   }
   properties: {
-    adminUserEnabled: true
+    adminUserEnabled: false // Use managed identity instead
   }
 }
 
@@ -54,18 +54,11 @@ resource webApp 'Microsoft.Web/sites@2024-04-01' = {
   properties: {
     serverFarmId: appServicePlan.id
     siteConfig: {
+      acrUseManagedIdentityCreds: true // Use managed identity for ACR authentication
       appSettings: [
         {
           name: 'DOCKER_REGISTRY_SERVER_URL'
           value: 'https://${acr.name}.azurecr.io'
-        }
-        {
-          name: 'DOCKER_REGISTRY_SERVER_USERNAME'
-          value: acr.properties.loginServer
-        }
-        {
-          name: 'DOCKER_REGISTRY_SERVER_PASSWORD'
-          value: acr.listCredentials().passwords[0].value
         }
         {
           name: 'WEBSITES_ENABLE_APP_SERVICE_STORAGE'
@@ -80,3 +73,19 @@ resource webApp 'Microsoft.Web/sites@2024-04-01' = {
     }
   }
 }
+
+// Assign AcrPull role to the Web App's managed identity
+resource acrPullRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(acr.id, webApp.id, 'AcrPull')
+  scope: acr
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '7f951dda-4ed3-4680-a7ca-43fe172d538d') // AcrPull role ID
+    principalId: webApp.identity.principalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
+output webAppName string = webApp.name
+output webAppUrl string = 'https://${webApp.properties.defaultHostName}'
+output acrLoginServer string = acr.properties.loginServer
+output webAppPrincipalId string = webApp.identity.principalId
