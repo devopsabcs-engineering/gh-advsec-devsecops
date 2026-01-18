@@ -3,16 +3,16 @@
   "contentVersion": "1.0.0.0",
   "parameters": {
     "acrName": {
-      "value": "crdevsecopscldev01"
+      "value": "crdevsecopscldev001"
     },
     "acrSku": {
       "value": "Basic"
     },
     "appServicePlanName": {
-      "value": "asp-gh-aspnet-webapp-01"
+      "value": "asp-gh-aspnet-webapp-001"
     },
     "webAppName": {
-      "value": "app-gh-aspnet-webapp-01"
+      "value": "app-gh-aspnet-webapp-001"
     },
     "location": {
       "value": "canadacentral"
@@ -21,7 +21,7 @@
       "value": "crdevsecopscldev01.azurecr.io/webapp01:latest"
     },
     "resourceGroupName": {
-      "value": "rg-gh-aspnet-webapp-01"
+      "value": "rg-gh-aspnet-webapp-001"
     }
   }
 }
