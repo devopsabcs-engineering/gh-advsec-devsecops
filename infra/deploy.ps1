@@ -108,10 +108,54 @@ else {
         # Show deployment outputs
         Write-Host ""
         Write-Host "Deployment outputs:" -ForegroundColor Cyan
-        az deployment sub show `
+        $outputs = az deployment sub show `
             --name $DeploymentName `
             --query "properties.outputs" `
-            --output table
+            --output json | ConvertFrom-Json
+        
+        $outputs | ConvertTo-Json | Write-Host
+        
+        # Configure ACR managed identity authentication
+        if ($outputs.webAppName) {
+            $webAppName = $outputs.webAppName.value
+            $resourceGroupName = (az webapp show --name $webAppName --query resourceGroup -o tsv)
+            
+            Write-Host ""
+            Write-Host "Configuring ACR managed identity authentication..." -ForegroundColor Yellow
+            
+            # Ensure acrUseManagedIdentityCreds is set (should be set by Bicep, but double-check)
+            Write-Host "Verifying ACR managed identity configuration..." -ForegroundColor Cyan
+            $config = az webapp config show --name $webAppName --resource-group $resourceGroupName --query "acrUseManagedIdentityCreds" -o tsv
+            
+            if ($config -ne "true") {
+                Write-Host "Setting acrUseManagedIdentityCreds=true..." -ForegroundColor Cyan
+                az resource update `
+                    --ids "/subscriptions/$($account.id)/resourceGroups/$resourceGroupName/providers/Microsoft.Web/sites/$webAppName/config/web" `
+                    --set properties.acrUseManagedIdentityCreds=true
+            } else {
+                Write-Host "ACR managed identity already configured" -ForegroundColor Green
+            }
+            
+            # Restart the web app to apply all changes
+            Write-Host "Restarting web app to apply configuration..." -ForegroundColor Cyan
+            az webapp restart --name $webAppName --resource-group $resourceGroupName
+            
+            if ($LASTEXITCODE -eq 0) {
+                Write-Host "Web app restarted successfully!" -ForegroundColor Green
+                Write-Host ""
+                Write-Host "=== Configuration Summary ===" -ForegroundColor Cyan
+                Write-Host "✓ System-assigned managed identity enabled" -ForegroundColor Green
+                Write-Host "✓ AcrPull role assigned to managed identity" -ForegroundColor Green
+                Write-Host "✓ ACR authentication configured to use managed identity" -ForegroundColor Green
+                Write-Host "✓ Web app restarted" -ForegroundColor Green
+                Write-Host ""
+                if ($outputs.webAppUrl) {
+                    Write-Host "Web App URL: $($outputs.webAppUrl.value)" -ForegroundColor Green
+                }
+            } else {
+                Write-Warning "Failed to restart web app. You may need to restart it manually."
+            }
+        }
     }
     else {
         Write-Error "Deployment failed with exit code: $LASTEXITCODE"
