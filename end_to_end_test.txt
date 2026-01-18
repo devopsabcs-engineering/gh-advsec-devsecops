@@ -8,3 +8,5 @@ Enabled System-Assigned Managed Identity on the Web App
 Granted AcrPull Role to the managed identity on your container registry
 Configured acrUseManagedIdentityCreds=true on the Web App
 Restarted the Web App to apply changes
+---
+regression test
