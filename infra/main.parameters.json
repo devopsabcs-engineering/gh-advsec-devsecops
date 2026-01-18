@@ -18,7 +18,7 @@
       "value": "canadacentral"
     },
     "containerImage": {
-      "value": "crdevsecopscldev01.azurecr.io/webapp01:latest"
+      "value": "crdevsecopscldev001.azurecr.io/webapp01:latest"
     },
     "resourceGroupName": {
       "value": "rg-gh-aspnet-webapp-001"
