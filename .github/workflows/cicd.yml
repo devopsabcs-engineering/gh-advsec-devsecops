@@ -13,10 +13,11 @@ permissions:
   security-events: write
 
 env:
-  AZURE_WEBAPP_NAME: app-gh-aspnet-webapp-01    # set this to your application's name
-  SRC_PROJECT_PATH: '/webapp01/webapp01.csproj' 
-  AZURE_WEBAPP_PACKAGE_PATH: './src'            # set this to the path to your web app project, defaults to the repository root
-  DOTNET_VERSION: '9.0.x'                       # set this to the dot net version to use
+  AZURE_WEBAPP_NAME: app-gh-aspnet-webapp-01 # set this to your application's name
+  SRC_PROJECT_PATH: "/webapp01/webapp01.csproj"
+  AZURE_WEBAPP_PACKAGE_PATH: "./src" # set this to the path to your web app project, defaults to the repository root
+  DOTNET_VERSION: "9.0.x" # set this to the dot net version to use
+  AZURE_ACR_NAME: crdevsecopscldev01 # set this to your Azure Container Registry name
 
 jobs:
   cicd:
@@ -25,55 +26,55 @@ jobs:
     steps:
       # Checkout the repo
       - uses: actions/checkout@v5
-      
+
       # Setup .NET Core SDK
       - name: Setup .NET Core
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: ${{ env.DOTNET_VERSION }} 
-      
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
       # Run dotnet build and publish
       - name: dotnet build and publish
         run: |
           dotnet restore ${{ env.AZURE_WEBAPP_PACKAGE_PATH }}${{ env.SRC_PROJECT_PATH }}
           dotnet build --configuration Release ${{ env.AZURE_WEBAPP_PACKAGE_PATH }}${{ env.SRC_PROJECT_PATH }}
           dotnet publish -c Release --property:PublishDir='bin/publish' ${{ env.AZURE_WEBAPP_PACKAGE_PATH }}${{ env.SRC_PROJECT_PATH }}
-      
+
       - name: Azure Login
         uses: azure/login@v2
         with:
-            client-id: ${{ secrets.AZURE_CLIENT_ID }}
-            tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-            subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-            
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
       # Deploy to Azure Web apps
-      - name: 'Run Azure webapp deploy action using publish profile credentials'
-        if: false  # This disables the action
+      - name: "Run Azure webapp deploy action using publish profile credentials"
+        if: false # This disables the action
         uses: azure/webapps-deploy@v3
-        with: 
+        with:
           app-name: ${{ env.AZURE_WEBAPP_NAME }} # Replace with your app name
-          package: '${{ env.AZURE_WEBAPP_PACKAGE_PATH }}/webapp01/bin/publish'
-      
+          package: "${{ env.AZURE_WEBAPP_PACKAGE_PATH }}/webapp01/bin/publish"
+
       - uses: azure/docker-login@v2
         with:
-          login-server: crdevsecopscldev.azurecr.io
+          login-server: ${{ env.AZURE_ACR_NAME }}.azurecr.io
           username: ${{ secrets.REGISTRY_USERNAME }}
           password: ${{ secrets.REGISTRY_PASSWORD }}
       - run: |
-          docker build ./src/webapp01 --file ./src/webapp01/Dockerfile -t crdevsecopscldev.azurecr.io/webapp01:${{ github.sha }}
-          docker push crdevsecopscldev.azurecr.io/webapp01:${{ github.sha }}     
-    
+          docker build ./src/webapp01 --file ./src/webapp01/Dockerfile -t ${{ env.AZURE_ACR_NAME }}.azurecr.io/webapp01:${{ github.sha }}
+          docker push ${{ env.AZURE_ACR_NAME }}.azurecr.io/webapp01:${{ github.sha }}
+
       - name: Azure Web Apps Deploy
         uses: azure/webapps-deploy@v3
         with:
           app-name: ${{ env.AZURE_WEBAPP_NAME }}
-          images: 'crdevsecopscldev.azurecr.io/webapp01:${{ github.sha }}'
-          
+          images: "${{ env.AZURE_ACR_NAME }}.azurecr.io/webapp01:${{ github.sha }}"
+
       - name: logout
         run: |
           az logout
- 
-  # https://docs.github.com/en/actions/security-for-github-actions/using-artifact-attestations/using-artifact-attestations-and-reusable-workflows-to-achieve-slsa-v1-build-level-3          
+
+  # https://docs.github.com/en/actions/security-for-github-actions/using-artifact-attestations/using-artifact-attestations-and-reusable-workflows-to-achieve-slsa-v1-build-level-3
   container-build-publish:
     name: Build and Publish Container Image
     needs: []
