@@ -4,6 +4,27 @@ on:
   push:
     branches:
       - main
+  workflow_dispatch:
+    inputs:
+      azure_location:
+        description: 'Azure region for deployment'
+        required: true
+        type: choice
+        default: 'canadacentral'
+        options:
+          - canadacentral
+          - canadaeast
+          - eastus
+          - eastus2
+          - westus
+          - westus2
+          - westeurope
+          - northeurope
+      instance_number:
+        description: 'Instance number for resource naming'
+        required: true
+        type: string
+        default: '002'
 
 permissions:
   attestations: write
@@ -13,15 +34,107 @@ permissions:
   security-events: write
 
 env:
-  AZURE_WEBAPP_NAME: app-gh-aspnet-webapp-001 # set this to your application's name
+  INSTANCE_NUMBER: ${{ github.event.inputs.instance_number || '002' }}
+  AZURE_LOCATION: ${{ github.event.inputs.azure_location || 'canadacentral' }}
+  AZURE_WEBAPP_NAME: app-gh-aspnet-webapp-${{ github.event.inputs.instance_number || '002' }}
   SRC_PROJECT_PATH: "/webapp01/webapp01.csproj"
-  AZURE_WEBAPP_PACKAGE_PATH: "./src" # set this to the path to your web app project, defaults to the repository root
-  DOTNET_VERSION: "9.0.x" # set this to the dot net version to use
-  AZURE_ACR_NAME: crdevsecopscldev001 # set this to your Azure Container Registry name
+  AZURE_WEBAPP_PACKAGE_PATH: "./src"
+  DOTNET_VERSION: "9.0.x"
+  AZURE_ACR_NAME: crdevsecopscldev${{ github.event.inputs.instance_number || '002' }}
 
 jobs:
+  deploy-infrastructure:
+    name: Deploy Azure Infrastructure
+    runs-on: ubuntu-latest
+    outputs:
+      acr_name: ${{ steps.deploy.outputs.acr_name }}
+      webapp_name: ${{ steps.deploy.outputs.webapp_name }}
+      webapp_url: ${{ steps.deploy.outputs.webapp_url }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Deploy Bicep Infrastructure
+        id: deploy
+        shell: pwsh
+        run: |
+          $instanceNumber = "${{ env.INSTANCE_NUMBER }}"
+          $location = "${{ env.AZURE_LOCATION }}"
+          
+          # Calculate resource names based on instance number
+          $acrName = "crdevsecopscldev$instanceNumber"
+          $appServicePlanName = "asp-gh-aspnet-webapp-$instanceNumber"
+          $webAppName = "app-gh-aspnet-webapp-$instanceNumber"
+          $resourceGroupName = "rg-gh-aspnet-webapp-$instanceNumber"
+          $containerImage = "$acrName.azurecr.io/webapp01:latest"
+          
+          # Deployment name based only on instance number for idempotence
+          $deploymentName = "deploy-infra-$instanceNumber"
+          
+          Write-Host "=== Azure Infrastructure Deployment ===" -ForegroundColor Cyan
+          Write-Host "Instance Number: $instanceNumber" -ForegroundColor Green
+          Write-Host "Location: $location" -ForegroundColor Green
+          Write-Host "ACR Name: $acrName" -ForegroundColor Green
+          Write-Host "App Service Plan: $appServicePlanName" -ForegroundColor Green
+          Write-Host "Web App Name: $webAppName" -ForegroundColor Green
+          Write-Host "Resource Group: $resourceGroupName" -ForegroundColor Green
+          Write-Host "Deployment Name: $deploymentName" -ForegroundColor Green
+          
+          # Deploy using inline parameters instead of parameters file
+          az deployment sub create `
+            --name $deploymentName `
+            --location $location `
+            --template-file ./infra/main.bicep `
+            --parameters acrName=$acrName `
+            --parameters acrSku=Basic `
+            --parameters appServicePlanName=$appServicePlanName `
+            --parameters webAppName=$webAppName `
+            --parameters location=$location `
+            --parameters containerImage=$containerImage `
+            --parameters resourceGroupName=$resourceGroupName
+          
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "Deployment failed with exit code: $LASTEXITCODE"
+            exit $LASTEXITCODE
+          }
+          
+          Write-Host "Deployment completed successfully!" -ForegroundColor Green
+          
+          # Set outputs for subsequent jobs
+          echo "acr_name=$acrName" >> $env:GITHUB_OUTPUT
+          echo "webapp_name=$webAppName" >> $env:GITHUB_OUTPUT
+          echo "webapp_url=https://$webAppName.azurewebsites.net" >> $env:GITHUB_OUTPUT
+
+      - name: Configure ACR Managed Identity
+        shell: pwsh
+        run: |
+          $webAppName = "${{ steps.deploy.outputs.webapp_name }}"
+          $resourceGroupName = "rg-gh-aspnet-webapp-${{ env.INSTANCE_NUMBER }}"
+          
+          Write-Host "Configuring ACR managed identity authentication..." -ForegroundColor Yellow
+          
+          # Verify ACR managed identity configuration
+          $config = az webapp config show --name $webAppName --resource-group $resourceGroupName --query "acrUseManagedIdentityCreds" -o tsv
+          
+          if ($config -ne "true") {
+            Write-Host "Setting acrUseManagedIdentityCreds=true..." -ForegroundColor Cyan
+            az webapp config set --name $webAppName --resource-group $resourceGroupName --generic-configurations '{"acrUseManagedIdentityCreds": true}'
+          } else {
+            Write-Host "ACR managed identity already configured" -ForegroundColor Green
+          }
+
+      - name: logout
+        run: az logout
+
   cicd:
     name: Build and Deploy to Azure Web App
+    needs: deploy-infrastructure
     runs-on: ubuntu-latest
     steps:
       # Checkout the repo
