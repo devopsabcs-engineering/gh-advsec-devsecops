@@ -15,7 +15,7 @@ Identify vulnerabilities and misconfigurations, assess risk, and produce a secur
 Prioritize review of:
 
 - `src/webapp01` (ASP.NET Core Razor Pages)
-- `infra/`, `terraform/`, `manifests/` (IaC)
+- `blueprints/`, `infra/`, `terraform/`, `bicep/`, `manifests/` (IaC)
 - `.github/workflows/` (pipeline security)
 - Container configuration (Dockerfiles) where present
 
