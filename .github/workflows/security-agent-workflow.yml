@@ -1,3 +1,7 @@
+# Security Agent Workflow
+# Original author: Elio Struyf
+# Reference: https://www.eliostruyf.com/custom-security-agent-github-copilot-actions/
+
 name: Security Agent Workflow
 
 on:
