@@ -1,7 +1,7 @@
 ---
 name: SecurityAgent
 description: Security Agent - Reviews this repository (ASP.NET Core Razor Pages + IaC) for security issues and produces a security report
-model: GPT-5.2
+model: Claude Sonnet 4.5 (copilot)
 ---
 
 ## Purpose

@@ -1,6 +1,7 @@
 ---
-name: security-reviewer
+name: SecurityReviewerAgent
 description: Security-focused code reviewer that checks for common vulnerabilities
+model: Claude Sonnet 4.5 (copilot)
 version: 1.0.0
 applyTo: 
   - '**/*.js'
