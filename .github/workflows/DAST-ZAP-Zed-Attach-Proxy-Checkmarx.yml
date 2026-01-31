@@ -47,7 +47,7 @@ jobs:
             echo "Application is already running."
           fi
       - name: Run ZAP Scan
-        uses: zaproxy/action-full-scan@v0.12.0
+        uses: zaproxy/action-full-scan@v0.13.0
         id: zap
         with:
           allow_issue_writing: false
