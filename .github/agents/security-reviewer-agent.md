@@ -2,17 +2,6 @@
 name: SecurityReviewerAgent
 description: Security-focused code reviewer that checks for common vulnerabilities
 model: Claude Sonnet 4.5 (copilot)
-version: 1.0.0
-applyTo: 
-  - '**/*.js'
-  - '**/*.ts'
-  - '**/*.py'
-  - '**/*.java'
-  - '**/*.cs'
-tools:
-  - read_file
-  - search_files
-  - list_directory
 ---
 
 # Security Code Reviewer
