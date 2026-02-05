@@ -45,3 +45,9 @@ module resourcesInRG './resources.bicep' = {
     containerImage: containerImage
   }
 }
+
+// Expose outputs from the module for use in CI/CD pipelines
+output webAppName string = resourcesInRG.outputs.webAppName
+output webAppUrl string = resourcesInRG.outputs.webAppUrl
+output acrLoginServer string = resourcesInRG.outputs.acrLoginServer
+output webAppPrincipalId string = resourcesInRG.outputs.webAppPrincipalId
