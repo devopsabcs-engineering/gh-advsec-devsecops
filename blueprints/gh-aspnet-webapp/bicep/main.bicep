@@ -29,15 +29,18 @@ resource resourceGroup 'Microsoft.Resources/resourceGroups@2021-04-01' = {
   location: location
 }
 
+// Generate unique suffix based on resource group ID for customer-specific uniqueness
+var uniqueSuffix = uniqueString(resourceGroup.id)
+
 // Deploy resources within the resource group
 module resourcesInRG './resources.bicep' = {
   name: 'deployResourcesInRG'
   scope: resourceGroup
   params: {
-    acrName: acrName
+    acrName: '${acrName}${uniqueSuffix}'
     acrSku: acrSku
-    appServicePlanName: appServicePlanName
-    webAppName: webAppName
+    appServicePlanName: '${appServicePlanName}-${uniqueSuffix}'
+    webAppName: '${webAppName}-${uniqueSuffix}'
     location: location
     containerImage: containerImage
   }
