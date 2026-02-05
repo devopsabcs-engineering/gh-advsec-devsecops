@@ -136,7 +136,7 @@ resource sqlServerAudit 'Microsoft.Sql/servers/auditingSettings@2023-08-01-previ
 - **Issue:** SQL Server not configured with managed identity for authentication
 - **Impact:** Limited ability to use passwordless authentication mechanisms
 - **Control Mapping:** CIS Azure 4.1.1, Azure Security Benchmark PA-7
-- **Remediation:** Added system-assigned managed identity and Azure AD admin configuration
+- **Remediation:** Added system-assigned managed identity and optional Azure AD admin configuration
 
 ```diff
  resource sqlServer 'Microsoft.Sql/servers@2023-08-01-preview' = {
@@ -147,15 +147,17 @@ resource sqlServerAudit 'Microsoft.Sql/servers/auditingSettings@2023-08-01-previ
 +  }
    properties: {
      administratorLogin: 'sqladmin'
-+    administrators: {
++    administrators: !empty(sqlAdminObjectId) && !empty(sqlAdminLogin) ? {
 +      administratorType: 'ActiveDirectory'
 +      azureADOnlyAuthentication: false
-+      login: 'sqladmin'
-+      principalType: 'Application'
-+      sid: subscription().tenantId
++      login: sqlAdminLogin
++      principalType: 'User'
++      sid: sqlAdminObjectId
 +      tenantId: subscription().tenantId
-+    }
++    } : null
 ```
+
+**Note:** Azure AD admin is now optional via parameters. When `sqlAdminObjectId` and `sqlAdminLogin` parameters are provided, Azure AD authentication is configured. Otherwise, SQL authentication is used with the expectation that the password is securely managed via Key Vault during deployment.
 
 #### [MEDIUM] MON-003: Key Vault Missing Diagnostic Settings
 - **Resource:** `Microsoft.KeyVault/vaults` (keyVault)

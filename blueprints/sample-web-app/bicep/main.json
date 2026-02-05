@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.40.2.10011",
-      "templateHash": "10321302205426355066"
+      "templateHash": "16602875762343387371"
     }
   },
   "parameters": {
@@ -33,6 +33,20 @@
       "defaultValue": "samplewebapp",
       "metadata": {
         "description": "Base name for all resources."
+      }
+    },
+    "sqlAdminObjectId": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Optional: Azure AD admin object ID for SQL Server."
+      }
+    },
+    "sqlAdminLogin": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Optional: Azure AD admin login name for SQL Server."
       }
     }
   },
@@ -169,14 +183,7 @@
       },
       "properties": {
         "administratorLogin": "sqladmin",
-        "administrators": {
-          "administratorType": "ActiveDirectory",
-          "azureADOnlyAuthentication": false,
-          "login": "sqladmin",
-          "principalType": "Application",
-          "sid": "[subscription().tenantId]",
-          "tenantId": "[subscription().tenantId]"
-        },
+        "administrators": "[if(and(not(empty(parameters('sqlAdminObjectId'))), not(empty(parameters('sqlAdminLogin')))), createObject('administratorType', 'ActiveDirectory', 'azureADOnlyAuthentication', false(), 'login', parameters('sqlAdminLogin'), 'principalType', 'User', 'sid', parameters('sqlAdminObjectId'), 'tenantId', subscription().tenantId), null())]",
         "minimalTlsVersion": "1.2",
         "publicNetworkAccess": "Disabled"
       },

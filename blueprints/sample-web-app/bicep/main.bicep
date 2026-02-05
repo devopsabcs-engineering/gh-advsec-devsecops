@@ -8,6 +8,12 @@ param environmentName string = 'dev'
 @description('Base name for all resources.')
 param baseName string = 'samplewebapp'
 
+@description('Optional: Azure AD admin object ID for SQL Server.')
+param sqlAdminObjectId string = ''
+
+@description('Optional: Azure AD admin login name for SQL Server.')
+param sqlAdminLogin string = ''
+
 /* ========================================================================== */
 /* Variables                                                                   */
 /* ========================================================================== */
@@ -143,14 +149,14 @@ resource sqlServer 'Microsoft.Sql/servers@2023-08-01-preview' = {
   }
   properties: {
     administratorLogin: 'sqladmin'
-    administrators: {
+    administrators: !empty(sqlAdminObjectId) && !empty(sqlAdminLogin) ? {
       administratorType: 'ActiveDirectory'
       azureADOnlyAuthentication: false
-      login: 'sqladmin'
-      principalType: 'Application'
-      sid: subscription().tenantId
+      login: sqlAdminLogin
+      principalType: 'User'
+      sid: sqlAdminObjectId
       tenantId: subscription().tenantId
-    }
+    } : null
     minimalTlsVersion: '1.2'
     publicNetworkAccess: 'Disabled'
   }
