@@ -40,6 +40,19 @@ jobs:
       with:
         path: buildOutput
 
+    # Generate build provenance attestation (SLSA Level 2+)
+    - name: Generate Build Provenance Attestation
+      uses: actions/attest-build-provenance@v1
+      with:
+        subject-path: 'buildOutput/**/*'
+
+    # Attest SBOM for supply chain verification
+    - name: Attest SBOM
+      uses: actions/attest-sbom@v1
+      with:
+        subject-path: 'buildOutput/**/*'
+        sbom-path: '_manifest/spdx_2.2/manifest.spdx.json'
+
     - name: SBOM upload 
       uses: advanced-security/spdx-dependency-submission-action@v0.1.1
       with:

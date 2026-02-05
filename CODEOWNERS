@@ -1,1 +1,21 @@
+# Default owner for everything
 * @CalinL
+
+# Security-sensitive paths require security team review
+/.github/workflows/ @CalinL
+/.github/dependabot.yml @CalinL
+/.github/secret_scanning.yml @CalinL
+/SECURITY.md @CalinL
+
+# Infrastructure as Code requires platform team review
+/terraform/ @CalinL
+/blueprints/ @CalinL
+*.bicep @CalinL
+*.tf @CalinL
+
+# Application dependencies require security review
+*.csproj @CalinL
+*.sln @CalinL
+
+# Dockerfiles require container security review
+**/Dockerfile @CalinL

@@ -10,10 +10,13 @@
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Azure.Identity" Version="1.13.2" />
-    <PackageReference Include="Microsoft.Data.SqlClient" Version="5.0.2" />
+    <!-- Updated to address CVE-2024-0056 and CVE-2024-0057 -->
+    <PackageReference Include="Microsoft.Data.SqlClient" Version="5.2.0" />
     <PackageReference Include="Microsoft.VisualStudio.Azure.Containers.Tools.Targets" Version="1.21.0" />
-    <PackageReference Include="System.Text.Json" Version="8.0.4" />
-    <PackageReference Include="Newtonsoft.Json" Version="13.0.1" />
+    <!-- Updated to latest patch release -->
+    <PackageReference Include="System.Text.Json" Version="8.0.5" />
+    <!-- Updated to address CVE-2024-21907 -->
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
   </ItemGroup>
 
 </Project>
