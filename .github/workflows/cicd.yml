@@ -34,11 +34,11 @@ permissions:
   security-events: write
 
 env:
-  DEFAULT_INSTANCE_NUMBER: "003"
-  DEFAULT_AZURE_LOCATION: "canadacentral"
+  DEFAULT_INSTANCE_NUMBER: "005"                # default instance number if not provided
+  DEFAULT_AZURE_LOCATION: "canadacentral"       # default Azure region if not provided
   SRC_PROJECT_PATH: "/webapp01/webapp01.csproj"
-  AZURE_WEBAPP_PACKAGE_PATH: "./src"
-  DOTNET_VERSION: "9.0.x"
+  AZURE_WEBAPP_PACKAGE_PATH: "./src"            # set this to the path to your web app project, defaults to the repository root
+  DOTNET_VERSION: "9.0.x"                       # set this to the dot net version to use   
 
 jobs:
   deploy-infrastructure:
