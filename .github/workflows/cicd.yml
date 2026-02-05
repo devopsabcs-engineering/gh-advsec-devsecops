@@ -34,7 +34,7 @@ permissions:
   security-events: write
 
 env:
-  DEFAULT_INSTANCE_NUMBER: "005"                # default instance number if not provided
+  DEFAULT_INSTANCE_NUMBER: "007"                # default instance number if not provided
   DEFAULT_AZURE_LOCATION: "canadacentral"       # default Azure region if not provided
   SRC_PROJECT_PATH: "/webapp01/webapp01.csproj"
   AZURE_WEBAPP_PACKAGE_PATH: "./src"            # set this to the path to your web app project, defaults to the repository root
@@ -74,7 +74,7 @@ jobs:
           $appServicePlanName = "asp-gh-aspnet-webapp-$instanceNumber"
           $webAppName = "app-gh-aspnet-webapp-$instanceNumber"
           $resourceGroupName = "rg-gh-aspnet-webapp-$instanceNumber"
-          $containerImage = "$acrName.azurecr.io/webapp01:latest"
+          $containerImageName = "webapp01:latest"
 
           # Deployment name based only on instance number for idempotence
           $deploymentName = "deploy-infra-$instanceNumber"
@@ -98,7 +98,7 @@ jobs:
             --parameters appServicePlanName=$appServicePlanName `
             --parameters webAppName=$webAppName `
             --parameters location=$location `
-            --parameters containerImage=$containerImage `
+            --parameters containerImageName=$containerImageName `
             --parameters resourceGroupName=$resourceGroupName `
             --query "properties.outputs" -o json
 

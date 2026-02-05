@@ -15,8 +15,8 @@ param webAppName string
 @description('The location for all resources')
 param location string
 
-@description('The container image to deploy')
-param containerImage string
+@description('The container image name without registry prefix (e.g., webapp01:latest)')
+param containerImageName string = 'webapp01:latest'
 
 @description('The name of the Resource Group')
 param resourceGroupName string = 'rg-webapp01-dev'
@@ -42,7 +42,7 @@ module resourcesInRG './resources.bicep' = {
     appServicePlanName: '${appServicePlanName}-${uniqueSuffix}'
     webAppName: '${webAppName}-${uniqueSuffix}'
     location: location
-    containerImage: containerImage
+    containerImageName: containerImageName
   }
 }
 

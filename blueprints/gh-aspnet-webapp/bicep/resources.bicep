@@ -13,8 +13,8 @@ param webAppName string
 @description('The location for all resources')
 param location string
 
-@description('The container image to deploy')
-param containerImage string
+@description('The container image name without registry prefix (e.g., webapp01:latest)')
+param containerImageName string = 'webapp01:latest'
 
 // Deploy the Azure Container Registry
 resource acr 'Microsoft.ContainerRegistry/registries@2023-01-01-preview' = {
@@ -58,7 +58,7 @@ resource webApp 'Microsoft.Web/sites@2024-04-01' = {
       appSettings: [
         {
           name: 'DOCKER_REGISTRY_SERVER_URL'
-          value: 'https://${acr.name}.azurecr.io'
+          value: 'https://${acr.properties.loginServer}'
         }
         {
           name: 'WEBSITES_ENABLE_APP_SERVICE_STORAGE'
@@ -66,10 +66,10 @@ resource webApp 'Microsoft.Web/sites@2024-04-01' = {
         }
         {
           name: 'DOCKER_CUSTOM_IMAGE_NAME'
-          value: containerImage
+          value: '${acr.properties.loginServer}/${containerImageName}'
         }
       ]
-      linuxFxVersion: 'DOCKER|${containerImage}' // Specify the container image
+      linuxFxVersion: 'DOCKER|${acr.properties.loginServer}/${containerImageName}'
     }
   }
 }
