@@ -40,3 +40,9 @@ jobs:
       
       - name: Build the Docker image
         run: docker build ./src/webapp01 --file ./src/webapp01/Dockerfile --tag ${{ env.imageName }}:${{ env.tag }}
+      
+      # TODO: Add container image signing when pushing to registry
+      # - name: Install Cosign
+      #   uses: sigstore/cosign-installer@v3
+      # - name: Sign container image
+      #   run: cosign sign --yes ${{ env.imageName }}:${{ env.tag }}
