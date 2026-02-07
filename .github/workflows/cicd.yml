@@ -24,7 +24,7 @@ on:
         description: "Instance number for resource naming"
         required: true
         type: string
-        default: "003"
+        default: "007"
 
 permissions:
   attestations: write
