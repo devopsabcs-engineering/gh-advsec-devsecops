@@ -8,6 +8,12 @@ param environmentName string = 'dev'
 @description('Base name for all resources.')
 param baseName string = 'samplewebapp'
 
+@description('Optional: Azure AD admin object ID for SQL Server.')
+param sqlAdminObjectId string = ''
+
+@description('Optional: Azure AD admin login name for SQL Server.')
+param sqlAdminLogin string = ''
+
 /* ========================================================================== */
 /* Variables                                                                   */
 /* ========================================================================== */
@@ -33,7 +39,7 @@ resource logAnalytics 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
     sku: {
       name: 'PerGB2018'
     }
-    retentionInDays: 30
+    retentionInDays: 90
   }
 }
 
@@ -138,8 +144,19 @@ resource appService 'Microsoft.Web/sites@2023-12-01' = {
 resource sqlServer 'Microsoft.Sql/servers@2023-08-01-preview' = {
   name: sqlServerName
   location: location
+  identity: {
+    type: 'SystemAssigned'
+  }
   properties: {
     administratorLogin: 'sqladmin'
+    administrators: !empty(sqlAdminObjectId) && !empty(sqlAdminLogin) ? {
+      administratorType: 'ActiveDirectory'
+      azureADOnlyAuthentication: false
+      login: sqlAdminLogin
+      principalType: 'User'
+      sid: sqlAdminObjectId
+      tenantId: subscription().tenantId
+    } : null
     minimalTlsVersion: '1.2'
     publicNetworkAccess: 'Disabled'
   }
@@ -164,6 +181,39 @@ resource sqlDatabase 'Microsoft.Sql/servers/databases@2023-08-01-preview' = {
 }
 
 /* ========================================================================== */
+/* SQL Server Auditing                                                         */
+/* ========================================================================== */
+
+@description('SQL Server auditing settings.')
+resource sqlServerAudit 'Microsoft.Sql/servers/auditingSettings@2023-08-01-preview' = {
+  parent: sqlServer
+  name: 'default'
+  properties: {
+    state: 'Enabled'
+    isAzureMonitorTargetEnabled: true
+    retentionDays: 90
+    auditActionsAndGroups: [
+      'SUCCESSFUL_DATABASE_AUTHENTICATION_GROUP'
+      'FAILED_DATABASE_AUTHENTICATION_GROUP'
+      'BATCH_COMPLETED_GROUP'
+    ]
+  }
+}
+
+/* ========================================================================== */
+/* SQL Database Transparent Data Encryption                                    */
+/* ========================================================================== */
+
+@description('Transparent Data Encryption for SQL Database.')
+resource sqlDatabaseTDE 'Microsoft.Sql/servers/databases/transparentDataEncryption@2023-08-01-preview' = {
+  parent: sqlDatabase
+  name: 'current'
+  properties: {
+    state: 'Enabled'
+  }
+}
+
+/* ========================================================================== */
 /* Key Vault Access for App Service                                            */
 /* ========================================================================== */
 
@@ -175,6 +225,121 @@ resource keyVaultRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04
     roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '4633458b-17de-408a-b874-0445c86b69e6')
     principalId: appService.identity.principalId
     principalType: 'ServicePrincipal'
+  }
+}
+
+/* ========================================================================== */
+/* Diagnostic Settings                                                         */
+/* ========================================================================== */
+
+@description('Diagnostic settings for Key Vault.')
+resource keyVaultDiagnostics 'Microsoft.Insights/diagnosticSettings@2021-05-01-preview' = {
+  name: 'kv-diagnostics'
+  scope: keyVault
+  properties: {
+    workspaceId: logAnalytics.id
+    logs: [
+      {
+        category: 'AuditEvent'
+        enabled: true
+        retentionPolicy: {
+          enabled: true
+          days: 90
+        }
+      }
+    ]
+    metrics: [
+      {
+        category: 'AllMetrics'
+        enabled: true
+        retentionPolicy: {
+          enabled: true
+          days: 90
+        }
+      }
+    ]
+  }
+}
+
+@description('Diagnostic settings for SQL Server.')
+resource sqlServerDiagnostics 'Microsoft.Insights/diagnosticSettings@2021-05-01-preview' = {
+  name: 'sql-diagnostics'
+  scope: sqlServer
+  properties: {
+    workspaceId: logAnalytics.id
+    logs: [
+      {
+        category: 'SQLSecurityAuditEvents'
+        enabled: true
+        retentionPolicy: {
+          enabled: true
+          days: 90
+        }
+      }
+    ]
+    metrics: [
+      {
+        category: 'AllMetrics'
+        enabled: true
+        retentionPolicy: {
+          enabled: true
+          days: 90
+        }
+      }
+    ]
+  }
+}
+
+@description('Diagnostic settings for App Service.')
+resource appServiceDiagnostics 'Microsoft.Insights/diagnosticSettings@2021-05-01-preview' = {
+  name: 'app-diagnostics'
+  scope: appService
+  properties: {
+    workspaceId: logAnalytics.id
+    logs: [
+      {
+        category: 'AppServiceHTTPLogs'
+        enabled: true
+        retentionPolicy: {
+          enabled: true
+          days: 90
+        }
+      }
+      {
+        category: 'AppServiceConsoleLogs'
+        enabled: true
+        retentionPolicy: {
+          enabled: true
+          days: 90
+        }
+      }
+      {
+        category: 'AppServiceAppLogs'
+        enabled: true
+        retentionPolicy: {
+          enabled: true
+          days: 90
+        }
+      }
+      {
+        category: 'AppServiceAuditLogs'
+        enabled: true
+        retentionPolicy: {
+          enabled: true
+          days: 90
+        }
+      }
+    ]
+    metrics: [
+      {
+        category: 'AllMetrics'
+        enabled: true
+        retentionPolicy: {
+          enabled: true
+          days: 90
+        }
+      }
+    ]
   }
 }
 
