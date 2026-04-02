@@ -70,3 +70,11 @@ Boost visibility between security and development teams by integrating GHAS with
 > **⚡ DevSecOps is essential for modern software delivery.**
 
 > **🛡️ GitHub Advanced Security (GHAS) embeds security natively into developer workflows.**
+
+## 📖 Documentation
+
+For a concise overview of the shift-left security concepts, workflows, AI agents, and infrastructure patterns demonstrated in this repo, see the [DevSecOps Concepts Guide](docs/devsecops-concepts.md).
+
+For the full deep-dive on GHAS, GitHub Copilot, and Microsoft Defender for Cloud integration, see [Agentic AI for DevSecOps — GHAS + GHCP + MDC](docs/ghas-mdc-devsecops.md).
+
+For the L400 technical deep-dive on code-to-cloud security, see [GHAS + MDC L400 Technical Deep Dive](docs/GHAS-MDC-L400-Guide.md).
