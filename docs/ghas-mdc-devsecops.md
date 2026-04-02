@@ -798,7 +798,7 @@ graph LR
 
 ### Demo Repository
 
-🔗 **[githubabcs-devops/gh-advsec-devsecops](https://github.com/githubabcs-devops/gh-advsec-devsecops)** — Agentic DevSecOps in Action
+🔗 **[devopsabcs-engineering/gh-advsec-devsecops](https://github.com/devopsabcs-engineering/gh-advsec-devsecops)** — Agentic DevSecOps in Action
 
 ### Demo: What Was Demonstrated
 

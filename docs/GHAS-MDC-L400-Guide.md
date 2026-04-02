@@ -1062,7 +1062,7 @@ flowchart TD
 
 ## 5. Hands-On Configuration
 
-> **Demo Repository:** All hands-on examples reference the companion repository: [`githubabcs-devops/gh-advsec-devsecops`](https://github.com/githubabcs-devops/gh-advsec-devsecops) -- pre-configured GHAS settings, CodeQL queries, MSDO workflows, security agents, and intentional vulnerabilities for demo.
+> **Demo Repository:** All hands-on examples reference the companion repository: [`devopsabcs-engineering/gh-advsec-devsecops`](https://github.com/devopsabcs-engineering/gh-advsec-devsecops) -- pre-configured GHAS settings, CodeQL queries, MSDO workflows, security agents, and intentional vulnerabilities for demo.
 
 ### 5.1 Connecting GitHub to Defender for Cloud
 
@@ -1728,7 +1728,7 @@ Generate a hardened version of each workflow with inline comments explaining cha
 
 > Custom agents require GitHub Copilot Enterprise or Copilot Pro+ subscription. They consume GHAS alerts and MDC runtime context as input signals, making the GHAS+MDC data layer the foundation for agentic security.
 
-**Demo Repository:** All six agents are configured in [`githubabcs-devops/gh-advsec-devsecops`](https://github.com/githubabcs-devops/gh-advsec-devsecops)
+**Demo Repository:** All six agents are configured in [`devopsabcs-engineering/gh-advsec-devsecops`](https://github.com/devopsabcs-engineering/gh-advsec-devsecops)
 
 > **Reference:** [GitHub Docs -- About Custom Agents](https://docs.github.com/en/copilot/building-copilot-extensions/building-a-copilot-agent)
 > **Reference:** [GitHub Blog -- Agentic DevOps](https://github.blog/news-insights/product-news/github-copilot-the-agent-developer/)
