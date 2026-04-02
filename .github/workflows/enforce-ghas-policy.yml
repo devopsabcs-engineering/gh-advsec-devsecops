@@ -1,0 +1,73 @@
+# ---------------------------------------------------------
+# Enforce GHAS Policy
+# Runs on a schedule (daily) and on manual dispatch to
+# ensure all public repos in the org have GitHub Advanced
+# Security features enabled.
+#
+# Required secret:
+#   ORG_SECURITY_TOKEN — a PAT (classic) or fine-grained PAT
+#   with the following scopes:
+#     Classic PAT: repo, admin:org, security_events
+#     Fine-grained: Organization permissions  → Administration (write)
+#                   Repository permissions    → Administration (write),
+#                     Secret scanning alerts (write),
+#                     Code scanning alerts (write),
+#                     Vulnerability alerts (read/write),
+#                     Dependabot secrets (read/write)
+# ---------------------------------------------------------
+name: Enforce GHAS Policy
+
+on:
+  schedule:
+    # Run daily at 06:00 UTC
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run (no changes)'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'false'
+          - 'true'
+
+permissions:
+  contents: read
+
+env:
+  ORG_NAME: devopsabcs-engineering
+
+jobs:
+  enforce:
+    name: Enforce GHAS on public repos
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Authenticate GitHub CLI
+        env:
+          GH_TOKEN: ${{ secrets.ORG_SECURITY_TOKEN }}
+        run: gh auth status
+
+      - name: Run enforcement script
+        env:
+          GH_TOKEN: ${{ secrets.ORG_SECURITY_TOKEN }}
+        shell: pwsh
+        run: |
+          $dryRun = '${{ github.event.inputs.dry_run }}' -eq 'true'
+          $params = @{ Org = '${{ env.ORG_NAME }}' }
+          if ($dryRun) { $params['DryRun'] = $true }
+          & ./scripts/enforce-ghas-policy.ps1 @params
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "### GHAS Policy Enforcement" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Organization:** ${{ env.ORG_NAME }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Trigger:** ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Dry run:** ${{ github.event.inputs.dry_run || 'false' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Status:** ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
