@@ -145,6 +145,26 @@ resource sqlServer 'Microsoft.Sql/servers@2023-08-01-preview' = {
   }
 }
 
+@description('SQL Server auditing policy — CKV_AZURE_23, CKV_AZURE_24.')
+resource sqlServerAudit 'Microsoft.Sql/servers/auditingSettings@2023-08-01-preview' = {
+  parent: sqlServer
+  name: 'default'
+  properties: {
+    state: 'Enabled'
+    isAzureMonitorTargetEnabled: true
+    retentionDays: 91
+  }
+}
+
+@description('SQL Server threat detection — CKV_AZURE_25.')
+resource sqlServerThreatDetection 'Microsoft.Sql/servers/securityAlertPolicies@2023-08-01-preview' = {
+  parent: sqlServer
+  name: 'default'
+  properties: {
+    state: 'Enabled'
+  }
+}
+
 /* ========================================================================== */
 /* SQL Database                                                                */
 /* ========================================================================== */
@@ -160,6 +180,26 @@ resource sqlDatabase 'Microsoft.Sql/servers/databases@2023-08-01-preview' = {
   }
   properties: {
     collation: 'SQL_Latin1_General_CP1_CI_AS'
+  }
+}
+
+@description('SQL Database auditing policy — CKV_AZURE_23, CKV_AZURE_24.')
+resource sqlDatabaseAudit 'Microsoft.Sql/servers/databases/auditingSettings@2023-08-01-preview' = {
+  parent: sqlDatabase
+  name: 'default'
+  properties: {
+    state: 'Enabled'
+    isAzureMonitorTargetEnabled: true
+    retentionDays: 91
+  }
+}
+
+@description('SQL Database threat detection — CKV_AZURE_25.')
+resource sqlDatabaseThreatDetection 'Microsoft.Sql/servers/databases/securityAlertPolicies@2023-08-01-preview' = {
+  parent: sqlDatabase
+  name: 'default'
+  properties: {
+    state: 'Enabled'
   }
 }
 
