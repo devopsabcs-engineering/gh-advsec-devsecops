@@ -212,8 +212,6 @@ jobs:
   container-build-publish:
     name: Build and Publish Container Image
     uses: devopsabcs-engineering/devsecops-reusable-workflows/.github/workflows/container.yml@main
-    # Allow SPDX dependency submission failures in the reusable workflow to not block the pipeline
-    continue-on-error: true
     with:
       # This is used for tagging the container image
       version: v1.0.0
