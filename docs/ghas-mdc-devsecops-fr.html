@@ -1,0 +1,1356 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>IA agentique pour le DevSecOps | GHAS + GHCP + MDC</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<style>
+:root {
+  --gh-blue: #0969da;
+  --gh-dark: #0d1117;
+  --gh-gray-dark: #1c2128;
+  --gh-gray: #30363d;
+  --gh-gray-light: #484f58;
+  --gh-border: #30363d;
+  --gh-text: #e6edf3;
+  --gh-text-muted: #8b949e;
+  --gh-green: #3fb950;
+  --gh-purple: #a371f7;
+  --gh-orange: #d29922;
+  --gh-red: #f85149;
+  --gh-cyan: #58a6ff;
+  --accent-gradient: linear-gradient(135deg, #58a6ff, #a371f7);
+  --card-bg: #161b22;
+  --card-border: #21262d;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+  background-color: var(--gh-dark);
+  color: var(--gh-text);
+  line-height: 1.7;
+  font-size: 16px;
+}
+
+/* ── Hero ───────────────────────────────────────────── */
+.hero {
+  background: linear-gradient(135deg, #0d1117 0%, #161b22 40%, #1a1e2e 70%, #0d1117 100%);
+  border-bottom: 1px solid var(--card-border);
+  padding: 80px 20px 60px;
+  text-align: center;
+  position: relative;
+  overflow: hidden;
+}
+.hero::before {
+  content: '';
+  position: absolute;
+  top: -50%; left: -50%;
+  width: 200%; height: 200%;
+  background: radial-gradient(ellipse at 30% 50%, rgba(88,166,255,0.06) 0%, transparent 50%),
+              radial-gradient(ellipse at 70% 50%, rgba(163,113,247,0.06) 0%, transparent 50%);
+  pointer-events: none;
+}
+.hero-badge {
+  display: inline-block;
+  background: rgba(88,166,255,0.1);
+  border: 1px solid rgba(88,166,255,0.25);
+  color: var(--gh-cyan);
+  font-size: 0.8rem;
+  font-weight: 600;
+  padding: 6px 16px;
+  border-radius: 20px;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  margin-bottom: 24px;
+  position: relative;
+}
+.hero h1 {
+  font-size: clamp(2rem, 5vw, 3.2rem);
+  font-weight: 800;
+  background: var(--accent-gradient);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  margin-bottom: 16px;
+  position: relative;
+}
+.hero .subtitle {
+  font-size: 1.15rem;
+  color: var(--gh-text-muted);
+  max-width: 750px;
+  margin: 0 auto 32px;
+  position: relative;
+}
+.hero-meta {
+  font-size: 0.85rem;
+  color: var(--gh-text-muted);
+  position: relative;
+}
+.hero-meta span { margin: 0 12px; }
+
+/* ── Navigation ─────────────────────────────────────── */
+.toc {
+  background: var(--card-bg);
+  border-bottom: 1px solid var(--card-border);
+  padding: 0 20px;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  overflow-x: auto;
+  white-space: nowrap;
+}
+.toc-inner {
+  max-width: 1200px;
+  margin: 0 auto;
+  display: flex;
+  gap: 0;
+}
+.toc a {
+  display: inline-block;
+  padding: 14px 18px;
+  color: var(--gh-text-muted);
+  text-decoration: none;
+  font-size: 0.85rem;
+  font-weight: 500;
+  border-bottom: 2px solid transparent;
+  transition: all 0.2s;
+}
+.toc a:hover {
+  color: var(--gh-text);
+  border-bottom-color: var(--gh-cyan);
+  background: rgba(88,166,255,0.05);
+}
+
+/* ── Layout ─────────────────────────────────────────── */
+.container {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 0 24px;
+}
+
+section {
+  padding: 64px 0;
+  border-bottom: 1px solid var(--card-border);
+}
+section:last-of-type { border-bottom: none; }
+
+h2 {
+  font-size: 2rem;
+  font-weight: 700;
+  margin-bottom: 12px;
+  color: var(--gh-text);
+}
+h2 .section-num {
+  color: var(--gh-cyan);
+  font-weight: 800;
+  margin-right: 8px;
+}
+.section-lead {
+  font-size: 1.05rem;
+  color: var(--gh-text-muted);
+  margin-bottom: 40px;
+  max-width: 800px;
+}
+
+h3 {
+  font-size: 1.35rem;
+  font-weight: 600;
+  margin: 40px 0 16px;
+  color: var(--gh-text);
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--card-border);
+}
+
+h4 {
+  font-size: 1.1rem;
+  font-weight: 600;
+  margin: 24px 0 12px;
+  color: var(--gh-text);
+}
+
+p { margin-bottom: 16px; }
+strong { color: #f0f6fc; }
+a { color: var(--gh-cyan); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* ── Blockquote ─────────────────────────────────────── */
+blockquote {
+  background: rgba(88,166,255,0.05);
+  border-left: 4px solid var(--gh-cyan);
+  padding: 20px 24px;
+  margin: 24px 0;
+  border-radius: 0 8px 8px 0;
+  font-style: italic;
+  color: var(--gh-text-muted);
+}
+blockquote strong { color: var(--gh-text); font-style: normal; }
+
+/* ── Cards ──────────────────────────────────────────── */
+.card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 20px;
+  margin: 24px 0;
+}
+.card {
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 12px;
+  padding: 24px;
+  transition: border-color 0.2s, transform 0.2s;
+}
+.card:hover {
+  border-color: var(--gh-cyan);
+  transform: translateY(-2px);
+}
+.card-icon { font-size: 1.6rem; margin-bottom: 12px; display: block; }
+.card h4 { font-size: 1.05rem; font-weight: 600; margin-bottom: 8px; color: var(--gh-text); border: none; }
+.card p { font-size: 0.9rem; color: var(--gh-text-muted); margin-bottom: 0; }
+
+/* ── Tables ─────────────────────────────────────────── */
+.table-wrapper {
+  overflow-x: auto;
+  margin: 24px 0;
+  border-radius: 12px;
+  border: 1px solid var(--card-border);
+}
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+thead { background: rgba(88,166,255,0.08); }
+th {
+  text-align: left;
+  padding: 14px 16px;
+  font-weight: 600;
+  color: var(--gh-text);
+  border-bottom: 1px solid var(--card-border);
+  white-space: nowrap;
+}
+td {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--card-border);
+  color: var(--gh-text-muted);
+  vertical-align: top;
+}
+tr:last-child td { border-bottom: none; }
+tr:hover td { background: rgba(88,166,255,0.03); }
+td strong { color: var(--gh-text); }
+
+/* ── Stats Row ──────────────────────────────────────── */
+.stats-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 16px;
+  margin: 32px 0;
+}
+.stat-card {
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 12px;
+  padding: 20px;
+  text-align: center;
+}
+.stat-card .stat-value {
+  font-size: 2rem;
+  font-weight: 800;
+  background: var(--accent-gradient);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+.stat-card .stat-label {
+  font-size: 0.8rem;
+  color: var(--gh-text-muted);
+  margin-top: 4px;
+}
+
+/* ── Lists ──────────────────────────────────────────── */
+ul, ol { margin: 16px 0 16px 24px; }
+li { margin-bottom: 8px; color: var(--gh-text-muted); }
+li strong { color: var(--gh-text); }
+
+/* ── Mermaid ────────────────────────────────────────── */
+.mermaid-wrapper {
+  margin: 32px 0;
+  padding: 24px;
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 12px;
+  overflow-x: auto;
+}
+.mermaid {
+  display: flex;
+  justify-content: center;
+}
+
+/* ── Code / Pre ─────────────────────────────────────── */
+pre {
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 8px;
+  padding: 20px;
+  margin: 16px 0;
+  overflow-x: auto;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.85rem;
+  color: var(--gh-text-muted);
+  line-height: 1.6;
+}
+code {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.85em;
+  background: rgba(88,166,255,0.08);
+  padding: 2px 6px;
+  border-radius: 4px;
+  color: var(--gh-cyan);
+}
+pre code { background: none; padding: 0; color: inherit; }
+
+/* ── Phases ─────────────────────────────────────────── */
+.phase-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 20px;
+  margin: 24px 0;
+}
+.phase-card {
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 12px;
+  padding: 24px;
+  position: relative;
+  overflow: hidden;
+}
+.phase-card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 3px;
+}
+.phase-card.p1::before { background: var(--gh-cyan); }
+.phase-card.p2::before { background: var(--gh-green); }
+.phase-card.p3::before { background: var(--gh-purple); }
+.phase-card.p4::before { background: var(--gh-orange); }
+.phase-num {
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-bottom: 8px;
+}
+.p1 .phase-num { color: var(--gh-cyan); }
+.p2 .phase-num { color: var(--gh-green); }
+.p3 .phase-num { color: var(--gh-purple); }
+.p4 .phase-num { color: var(--gh-orange); }
+.phase-card h4 { font-size: 1.05rem; margin-bottom: 12px; border: none; }
+.phase-card ul { margin-left: 16px; }
+.phase-card li { font-size: 0.88rem; margin-bottom: 6px; }
+
+/* ── CTA ────────────────────────────────────────────── */
+.cta-box {
+  background: linear-gradient(135deg, rgba(88,166,255,0.1), rgba(163,113,247,0.1));
+  border: 1px solid rgba(88,166,255,0.25);
+  border-radius: 16px;
+  padding: 40px;
+  margin: 40px 0;
+  text-align: center;
+}
+.cta-box h3 {
+  border-bottom: none;
+  color: var(--gh-text);
+  font-size: 1.5rem;
+  margin: 0 0 16px;
+}
+.cta-box p {
+  color: var(--gh-text-muted);
+  font-size: 1.05rem;
+  max-width: 700px;
+  margin: 0 auto;
+}
+
+/* ── Workflow steps ──────────────────────────────────── */
+.workflow {
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 12px;
+  padding: 24px 24px 24px 48px;
+  margin: 24px 0;
+  position: relative;
+}
+.workflow-step {
+  position: relative;
+  padding: 8px 0 8px 0;
+  color: var(--gh-text-muted);
+  font-size: 0.95rem;
+}
+.workflow-step strong { color: var(--gh-text); }
+.workflow-step .arrow { color: var(--gh-cyan); font-weight: 600; display: block; padding: 4px 0; font-size: 0.8rem; }
+
+/* ── Footer ─────────────────────────────────────────── */
+.footer {
+  text-align: center;
+  padding: 40px 20px;
+  color: var(--gh-text-muted);
+  font-size: 0.85rem;
+  border-top: 1px solid var(--card-border);
+}
+.footer a { color: var(--gh-cyan); }
+
+/* ── Responsive ─────────────────────────────────────── */
+@media (max-width: 768px) {
+  .hero { padding: 48px 16px 40px; }
+  .hero h1 { font-size: 1.8rem; }
+  section { padding: 40px 0; }
+  h2 { font-size: 1.5rem; }
+  .stats-row { grid-template-columns: repeat(2, 1fr); }
+}
+
+@media print {
+  .toc { display: none; }
+  section { break-inside: avoid; }
+  .mermaid-wrapper { break-inside: avoid; }
+  .lang-switcher { display: none; }
+}
+
+/* ── Language Switcher ──────────────────────────────── */
+.lang-switcher {
+  position: fixed;
+  top: 16px;
+  right: 20px;
+  z-index: 200;
+  display: flex;
+  gap: 0;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid var(--card-border);
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+.lang-switcher a {
+  padding: 6px 14px;
+  color: var(--gh-text-muted);
+  text-decoration: none;
+  background: var(--card-bg);
+  transition: all 0.2s;
+}
+.lang-switcher a:hover {
+  color: var(--gh-text);
+  background: rgba(88,166,255,0.1);
+  text-decoration: none;
+}
+.lang-switcher a.active {
+  color: var(--gh-dark);
+  background: var(--gh-cyan);
+  pointer-events: none;
+}
+</style>
+</head>
+<body>
+
+<!-- Sélecteur de langue -->
+<div class="lang-switcher">
+  <a href="ghas-mdc-devsecops.html">EN</a>
+  <a href="ghas-mdc-devsecops-fr.html" class="active">FR</a>
+</div>
+
+<!-- ══════════════════════════════════════════════════════ -->
+<!-- HERO                                                   -->
+<!-- ══════════════════════════════════════════════════════ -->
+<div class="hero">
+  <div class="hero-badge">Productivité des développeurs — GitHub Technical Insiders</div>
+  <h1>IA agentique pour le DevSecOps</h1>
+  <p class="subtitle">Transformer la sécurité avec GitHub Advanced Security + GitHub Copilot + Microsoft Defender pour le cloud</p>
+  <p class="hero-meta">
+    <span>📅 2 avril 2026</span>
+    <span>👤 Calin Lupas &amp; Emmanuel Knafo</span>
+    <span>🏢 Microsoft Canada</span>
+  </p>
+</div>
+
+<!-- ══════════════════════════════════════════════════════ -->
+<!-- NAVIGATION                                             -->
+<!-- ══════════════════════════════════════════════════════ -->
+<nav class="toc">
+  <div class="toc-inner">
+    <a href="#sec1">Pourquoi le DevSecOps</a>
+    <a href="#sec2">GHAS en profondeur</a>
+    <a href="#sec3">GHAS + MDC</a>
+    <a href="#sec4">IA agentique</a>
+    <a href="#sec5">Plan directeur</a>
+    <a href="#sec6">Points clés</a>
+    <a href="#sec7">Références</a>
+  </div>
+</nav>
+
+<div class="container">
+
+<!-- ══════════════════════════════════════════════════════ -->
+<!-- SECTION 1 — POURQUOI LE DEVSECOPS                     -->
+<!-- ══════════════════════════════════════════════════════ -->
+<section id="sec1">
+  <h2><span class="section-num">01</span> Pourquoi le DevSecOps est essentiel aujourd'hui</h2>
+  <p class="section-lead">La chaîne d'approvisionnement logicielle est le principal vecteur d'attaque. La sécurité doit être intégrée à chaque phase du développement.</p>
+
+  <h3>Le paysage des menaces</h3>
+
+  <div class="card-grid">
+    <div class="card">
+      <span class="card-icon">🔥</span>
+      <h4>SolarWinds</h4>
+      <p>Chaîne d'approvisionnement vulnérable et machine de build compromise — <strong>18 000 clients</strong> touchés</p>
+    </div>
+    <div class="card">
+      <span class="card-icon">🔑</span>
+      <h4>Codecov</h4>
+      <p>Secrets de développeurs divulgués — Jusqu'à <strong>29 000 clients</strong> à risque</p>
+    </div>
+    <div class="card">
+      <span class="card-icon">🪵</span>
+      <h4>Log4j</h4>
+      <p>Code source vulnérable — <strong>40 % des réseaux d'entreprise</strong> à l'échelle mondiale. 100 attaques/minute au pic.</p>
+    </div>
+  </div>
+
+  <div class="stats-row">
+    <div class="stat-card">
+      <div class="stat-value">N° 1</div>
+      <div class="stat-label">Les applications sont le premier vecteur d'attaque<br><small>Verizon DBIR 2024</small></div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value">65 %</div>
+      <div class="stat-label">des vulnérabilités persistent après 3 mois<br><small>Veracode SOSS 2024</small></div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value">5 %</div>
+      <div class="stat-label">des entreprises ont évité les attaques d'applis web en production<br><small>Contrast Security 2024</small></div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value">70,8 %</div>
+      <div class="stat-label">des organisations ont une dette de sécurité<br><small>Veracode SOSS 2024</small></div>
+    </div>
+  </div>
+
+  <h4>Alignement sur les normes de l'industrie</h4>
+  <div class="table-wrapper">
+    <table>
+      <thead><tr><th>Cadre</th><th>Portée</th><th>Pertinence</th></tr></thead>
+      <tbody>
+        <tr><td><strong>NIST SSDF</strong></td><td>Cadre de développement logiciel sécurisé</td><td>Référence pour le secteur public et privé aux É.-U.</td></tr>
+        <tr><td><strong>SLSA</strong></td><td>Niveaux de la chaîne d'approvisionnement pour les artefacts logiciels</td><td>Intégrité de la compilation et vérification de provenance</td></tr>
+        <tr><td><strong>Cyber Resilience Act (CRA)</strong></td><td>Législation européenne sur la sécurité logicielle</td><td>Obligatoire pour les produits logiciels sur le marché de l'UE</td></tr>
+        <tr><td><strong>OpenSSF Scorecard</strong></td><td>Score de posture de sécurité open source</td><td>Évaluation automatisée des risques liés aux dépendances</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>L'économie du « Shift Left »</h3>
+
+  <div class="stats-row">
+    <div class="stat-card">
+      <div class="stat-value">80 $</div>
+      <div class="stat-label">Développement</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value">240 $</div>
+      <div class="stat-label">Compilation (3×)</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value">960 $</div>
+      <div class="stat-label">Test / AQ (12×)</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value">7 600 $</div>
+      <div class="stat-label">Production (95×)</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value">4,88 M$</div>
+      <div class="stat-label">Brèche (moy.)<br><small>IBM 2024</small></div>
+    </div>
+  </div>
+
+  <div class="table-wrapper">
+    <table>
+      <thead><tr><th>Métrique</th><th>Valeur</th><th>Source</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Multiplicateur de coût</strong></td><td>100× plus cher à corriger en production vs. en développement</td><td>NIST &amp; IBM Systems Sciences Institute</td></tr>
+        <tr><td><strong>Croissance des exploits</strong></td><td>180 % de croissance de l'exploitation de vulnérabilités comme vecteur d'accès initial</td><td>Verizon DBIR 2024</td></tr>
+        <tr><td><strong>Pression de livraison</strong></td><td>79 % affirment que les équipes DevOps subissent une pression croissante pour raccourcir les cycles</td><td>Contrast Security 2024</td></tr>
+        <tr><td><strong>Dette de sécurité</strong></td><td>70,8 % des organisations ont une dette de sécurité ; 89,4 % dans le code propriétaire</td><td>Veracode SOSS 2024</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>Du DevOps → au DevSecOps agentique</h3>
+
+  <div class="mermaid-wrapper">
+    <pre class="mermaid">
+graph LR
+    A["DevOps\nPersonnes + Processus + Tech\n→ Livraison continue de valeur"] -->
+    B["DevSecOps\nSécurité en responsabilité partagée\n→ Livraison continue sécurisée"] -->
+    C["DevOps agentique\nAgents IA comme coéquipiers\n→ Automatiser et accélérer"] -->
+    D["DevSecOps agentique\nAgents IA avec sécurité intégrée\n→ Livraison sécurisée accélérée par l'IA"]
+
+    style A fill:#1e3a5f,stroke:#3b82f6,stroke-width:2px,color:#e6edf3
+    style B fill:#1e1b4b,stroke:#4f46e5,stroke-width:2px,color:#e6edf3
+    style C fill:#3b0764,stroke:#7c3aed,stroke-width:2px,color:#e6edf3
+    style D fill:#064e3b,stroke:#059669,stroke-width:3px,color:#e6edf3
+    </pre>
+  </div>
+
+  <h4>Trois obstacles — résolus par le DevSecOps agentique</h4>
+  <div class="card-grid">
+    <div class="card">
+      <span class="card-icon">🏢</span>
+      <h4>Cloisonnement organisationnel</h4>
+      <p>Équipes de sécurité isolées de l'ingénierie → <strong>Les agents intègrent la sécurité dans le flux de travail des développeurs</strong></p>
+    </div>
+    <div class="card">
+      <span class="card-icon">📚</span>
+      <h4>Lacunes en compétences</h4>
+      <p>Les développeurs manquent d'expertise en sécurité → <strong>Les agents fournissent une formation juste-à-temps</strong></p>
+    </div>
+    <div class="card">
+      <span class="card-icon">🔧</span>
+      <h4>Friction des outils</h4>
+      <p>Les outils de sécurité ne sont pas conçus pour les développeurs → <strong>Les agents détectent, expliquent et corrigent en temps réel</strong></p>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════ -->
+<!-- SECTION 2 — GHAS EN PROFONDEUR                        -->
+<!-- ══════════════════════════════════════════════════════ -->
+<section id="sec2">
+  <h2><span class="section-num">02</span> GitHub Advanced Security — En profondeur</h2>
+  <p class="section-lead">GitHub est la plus grande plateforme de développeurs au monde avec <strong>environ 150 millions de développeurs</strong>. GHAS apporte une sécurité native, de première partie, directement dans cette plateforme — pas ajoutée après coup, mais intégrée dès la conception. La mission : transférer le fardeau de votre équipe vers vos outils.</p>
+
+  <h3>Structure du produit (après avril 2025)</h3>
+  <p>Annoncé le <strong>4 mars 2025</strong>, en disponibilité générale le <strong>1er avril 2025</strong> — GHAS restructuré en deux produits autonomes, désormais disponibles sur les forfaits GitHub Team :</p>
+
+  <div class="table-wrapper">
+    <table>
+      <thead><tr><th>Produit</th><th>Inclus</th><th>Tarif</th></tr></thead>
+      <tbody>
+        <tr><td><strong>GitHub Secret Protection</strong></td><td>Analyse de secrets, protection au push, détection générique par IA, modèles personnalisés, contournement délégué, vérifications de validité</td><td>19 $/mois par contributeur actif</td></tr>
+        <tr><td><strong>GitHub Code Security</strong></td><td>Analyse de code CodeQL, Copilot Autofix, Dependabot, campagnes de sécurité, SARIF tiers</td><td>30 $/mois par contributeur actif</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <blockquote><strong>Note GHES :</strong> Sur GitHub Enterprise Server, GHAS reste un module complémentaire groupé à la licence Enterprise et n'a pas été restructuré en produits autonomes Secret Protection / Code Security.</blockquote>
+
+  <h3>🔒 Prévenir : Secret Protection et Push Protection</h3>
+  <blockquote><strong>💡 Les identifiants volés ou divulgués restent le vecteur d'attaque initial N° 1</strong> dans les violations de données, responsables de la plus grande part d'incidents année après année. — <em>IBM Coût d'une violation de données 2021 et 2023</em></blockquote>
+
+  <div class="mermaid-wrapper">
+    <pre class="mermaid">
+flowchart TD
+    A["Le développeur pousse du code"] --> B{"Scanner\nPush Protection"}
+    B -->|Aucun secret trouvé| C["✅ Push réussi"]
+    B -->|Secret détecté| D["🚫 Push BLOQUÉ"]
+    D --> E["Le développeur voit :\nType de secret, Fichier, Ligne, Options"]
+    E --> F["Supprimer le secret"]
+    E --> G["Marquer comme faux positif"]
+    E --> H["Demander un contournement délégué"]
+    H --> I["Réviseur de sécurité notifié"]
+    I --> J{"Décision du réviseur"}
+    J -->|Approuver| K["Push autorisé + Piste d'audit"]
+    J -->|Refuser| L["Push reste bloqué"]
+
+    style A fill:#1e1b4b,stroke:#4f46e5,color:#e6edf3
+    style B fill:#3b0764,stroke:#7c3aed,color:#e6edf3
+    style C fill:#064e3b,stroke:#059669,color:#e6edf3
+    style D fill:#881337,stroke:#e11d48,color:#e6edf3
+    style E fill:#78350f,stroke:#d97706,color:#e6edf3
+    style F fill:#064e3b,stroke:#059669,color:#e6edf3
+    style G fill:#1e293b,stroke:#64748b,color:#e6edf3
+    style H fill:#3b0764,stroke:#7c3aed,color:#e6edf3
+    style K fill:#064e3b,stroke:#059669,color:#e6edf3
+    style L fill:#881337,stroke:#e11d48,color:#e6edf3
+    </pre>
+  </div>
+
+  <div class="table-wrapper">
+    <table>
+      <thead><tr><th>Capacité</th><th>Description</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Modèles partenaires</strong></td><td>Plus de 200 modèles partenaires couvrant plus de 400 types de jetons de fournisseurs cloud, plateformes SaaS et registres de paquets</td></tr>
+        <tr><td><strong>Copilot Secret Scanning</strong></td><td>Détection par IA/ML de secrets non structurés — mots de passe, chaînes de connexion, identifiants génériques</td></tr>
+        <tr><td><strong>Modèles personnalisés</strong></td><td>Expressions régulières définies par l'organisation pour les formats de secrets internes</td></tr>
+        <tr><td><strong>Vérifications de validité</strong></td><td>Vérification automatisée via les API partenaires pour confirmer si un secret détecté est encore actif</td></tr>
+        <tr><td><strong>Push Protection</strong></td><td>Blocage en temps réel côté serveur <em>avant</em> que les secrets n'atteignent le dépôt</td></tr>
+        <tr><td><strong>Contournement délégué</strong></td><td>Flux de gouvernance nécessitant l'approbation de l'équipe de sécurité pour les exceptions</td></tr>
+        <tr><td><strong>Évaluation gratuite des risques liés aux secrets</strong></td><td>Analyse ponctuelle de tous les dépôts (incl. privés/internes/archivés) — aucune licence requise</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>🔍 Détecter : Analyse de code avec CodeQL</h3>
+  <p>CodeQL est le <strong>moteur d'analyse sémantique de code</strong> de GitHub — il traite le code comme des données en construisant une base de données relationnelle et en exécutant des requêtes de sécurité.</p>
+
+  <div class="table-wrapper">
+    <table>
+      <thead><tr><th>Langage</th><th>Mode de compilation</th><th>Notes</th></tr></thead>
+      <tbody>
+        <tr><td><strong>C/C++</strong></td><td><code>autobuild</code> ou manuel</td><td>Compilation requise</td></tr>
+        <tr><td><strong>C#</strong></td><td><code>autobuild</code> ou manuel</td><td>Support du framework .NET</td></tr>
+        <tr><td><strong>Go</strong></td><td><code>autobuild</code></td><td>Automatique</td></tr>
+        <tr><td><strong>Java/Kotlin</strong></td><td><code>autobuild</code> ou manuel</td><td>Support Maven/Gradle</td></tr>
+        <tr><td><strong>JavaScript/TypeScript</strong></td><td>Aucune compilation requise</td><td>—</td></tr>
+        <tr><td><strong>Python</strong></td><td>Aucune compilation requise</td><td>—</td></tr>
+        <tr><td><strong>Ruby</strong></td><td>Aucune compilation requise</td><td>—</td></tr>
+        <tr><td><strong>Swift</strong></td><td><code>autobuild</code> ou manuel</td><td>Exécuteurs macOS requis</td></tr>
+        <tr><td><strong>Rust</strong></td><td><code>autobuild</code></td><td>Éditions Rust 2021 et 2024</td></tr>
+        <tr><td><strong>GitHub Actions</strong></td><td>Aucune compilation requise</td><td>Analyse les YAML de workflow pour les injections et les problèmes de sécurité</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>🔧 Corriger : Copilot Autofix — Remédiation par IA</h3>
+
+  <div class="mermaid-wrapper">
+    <pre class="mermaid">
+flowchart LR
+    A["Alerte\nCodeQL"] --> B["Moteur Autofix\nLLM + Contexte CodeQL"]
+    B --> C["Analyser :\nCWE, flux de données"]
+    C --> D["Générer :\nCorrectif + explication"]
+    D --> E["Valider :\nLe correctif ne casse rien"]
+    E --> F["Commentaire PR :\nExplication + Diff\n+ Application en un clic"]
+
+    style A fill:#881337,stroke:#e11d48,color:#e6edf3
+    style B fill:#3b0764,stroke:#7c3aed,color:#e6edf3
+    style C fill:#1e293b,stroke:#64748b,color:#e6edf3
+    style D fill:#1e293b,stroke:#64748b,color:#e6edf3
+    style E fill:#1e293b,stroke:#64748b,color:#e6edf3
+    style F fill:#064e3b,stroke:#059669,stroke-width:2px,color:#e6edf3
+    </pre>
+  </div>
+
+  <h4>Impact sur la vitesse (Source : GitHub — « Found means fixed »)</h4>
+  <div class="stats-row">
+    <div class="stat-card">
+      <div class="stat-value">3×</div>
+      <div class="stat-label">Toutes les alertes (moy.)<br>28 min vs 1,5 h</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value">7×</div>
+      <div class="stat-label">Cross-site Scripting<br>22 min vs 2,8 h</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value">12×</div>
+      <div class="stat-label">Injection SQL<br>18 min vs 3,7 h</div>
+    </div>
+  </div>
+
+  <ul>
+    <li>Couvre <strong>plus de 90 % des types d'alertes</strong> dans tous les langages majeurs supportés par CodeQL</li>
+    <li>Remédie à <strong>deux tiers des vulnérabilités</strong> avec peu ou pas de modifications</li>
+    <li>Génère des suggestions de correction pour les <strong>résultats SARIF tiers</strong> — pas seulement CodeQL</li>
+    <li>Disponible pour les <strong>nouvelles alertes de PR</strong> et la <strong>dette de sécurité existante</strong> (via les campagnes de sécurité)</li>
+  </ul>
+
+  <h3>📈 Passer à l'échelle : Campagnes de sécurité et réduction de la dette</h3>
+
+  <div class="mermaid-wrapper">
+    <pre class="mermaid">
+flowchart TD
+    A["Le responsable sécurité identifie\nune vulnérabilité systémique"] --> B["Créer une campagne :\nCibler les CWE dans les dépôts"]
+    B --> C["GitHub génère des Issues\navec suggestions Autofix\n(jusqu'à 1 000 alertes)"]
+    C --> D["Les développeurs reçoivent :\nDétails de vulnérabilité + Autofix\n+ Contexte d'exécution de MDC"]
+    D --> E["Tableau de bord de campagne :\nCorrigé / Ouvert / En cours\nMétriques par équipe + SLA"]
+    E --> F["Synchronisation bidirectionnelle :\nGitHub ↔ Defender pour le cloud"]
+
+    style A fill:#881337,stroke:#e11d48,color:#e6edf3
+    style B fill:#1e1b4b,stroke:#4f46e5,color:#e6edf3
+    style C fill:#3b0764,stroke:#7c3aed,color:#e6edf3
+    style D fill:#064e3b,stroke:#059669,color:#e6edf3
+    style E fill:#1e3a5f,stroke:#3b82f6,color:#e6edf3
+    style F fill:#064e3b,stroke:#059669,stroke-width:2px,color:#e6edf3
+    </pre>
+  </div>
+
+  <div class="stats-row">
+    <div class="stat-card">
+      <div class="stat-value">70,8 %</div>
+      <div class="stat-label">Organisations avec dette de sécurité</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value">89,4 %</div>
+      <div class="stat-label">Dette de sécurité dans le code propriétaire</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value">46,6 %</div>
+      <div class="stat-label">Failles qui deviennent de la dette de sécurité</div>
+    </div>
+  </div>
+
+  <h3>📦 Protéger : Sécurité de la chaîne d'approvisionnement</h3>
+  <div class="table-wrapper">
+    <table>
+      <thead><tr><th>Fonctionnalité</th><th>Fonction</th><th>Automatisation</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Graphe de dépendances</strong></td><td>Cartographie toutes les dépendances directes + transitives</td><td>Automatique</td></tr>
+        <tr><td><strong>Alertes Dependabot</strong></td><td>Correspondance avec la base de données d'avis GitHub</td><td>Automatique</td></tr>
+        <tr><td><strong>Mises à jour de sécurité Dependabot</strong></td><td>Crée des PR pour mettre à jour les dépendances vulnérables</td><td>Semi-automatique</td></tr>
+        <tr><td><strong>Mises à jour de version Dependabot</strong></td><td>Maintient les dépendances à jour selon un calendrier</td><td>Configurable</td></tr>
+        <tr><td><strong>Revue de dépendances</strong></td><td>Contrôle de PR pour empêcher l'ajout de nouvelles vulnérabilités</td><td>Automatique</td></tr>
+        <tr><td><strong>Attestations d'artefacts</strong></td><td>Provenance de compilation et vérification d'intégrité (SLSA)</td><td>Workflow</td></tr>
+        <tr><td><strong>Génération de SBOM</strong></td><td>Nomenclature logicielle pour la conformité</td><td>Workflow</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════ -->
+<!-- SECTION 3 — GHAS + MDC                                 -->
+<!-- ══════════════════════════════════════════════════════ -->
+<section id="sec3">
+  <h2><span class="section-num">03</span> Sécuriser toute la pile — GHAS + MDC</h2>
+  <p class="section-lead">GitHub Advanced Security + Microsoft Defender pour le cloud = tissu de sécurité du code au cloud.</p>
+
+  <h3>Microsoft Defender pour le cloud — Sécurité DevOps</h3>
+
+  <div class="mermaid-wrapper">
+    <pre class="mermaid">
+graph TB
+    subgraph MDC["MICROSOFT DEFENDER POUR LE CLOUD"]
+        direction TB
+        DSPM["Gestion de la posture de sécurité DevOps"]
+        AGS["Analyse de code sans agent\nZéro YAML, zéro modification de pipeline"]
+        PRA["Annotations de Pull Request\nRésultats IaC dans le flux de travail du développeur"]
+        CSPM["Defender CSPM\nGestion de la posture de sécurité cloud"]
+        APA["Analyse des chemins d'attaque\nRisque de vulnérabilités chaînées"]
+        C2C["Cartographie code-vers-cloud\nDépôt source ↔ Charge de travail cloud"]
+    end
+
+    subgraph CONN["Support multi-pipeline"]
+        GH["GitHub — Application GitHub native"]
+        ADO["Azure DevOps — Extension"]
+        GL["GitLab — OAuth"]
+    end
+
+    CONN --> MDC
+
+    style MDC fill:#1a0a2e,stroke:#7c3aed,stroke-width:2px,color:#e6edf3
+    style CONN fill:#0c1929,stroke:#3b82f6,stroke-width:2px,color:#e6edf3
+    style DSPM fill:#2d1654,stroke:#7c3aed,color:#e6edf3
+    style AGS fill:#2d1654,stroke:#7c3aed,color:#e6edf3
+    style PRA fill:#2d1654,stroke:#7c3aed,color:#e6edf3
+    style CSPM fill:#2d1654,stroke:#7c3aed,color:#e6edf3
+    style APA fill:#2d1654,stroke:#7c3aed,color:#e6edf3
+    style C2C fill:#2d1654,stroke:#7c3aed,color:#e6edf3
+    </pre>
+  </div>
+
+  <h4>Analyse de code sans agent</h4>
+  <div class="table-wrapper">
+    <table>
+      <thead><tr><th>Scanner</th><th>Cible</th><th>Langage / Framework</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Bandit</strong></td><td>Code applicatif</td><td>Python</td></tr>
+        <tr><td><strong>ESLint</strong> (règles de sécurité)</td><td>Code applicatif</td><td>JavaScript / TypeScript</td></tr>
+        <tr><td><strong>Checkov</strong></td><td>IaC</td><td>Terraform, Kubernetes, Dockerfile, ARM, Bicep, CloudFormation</td></tr>
+        <tr><td><strong>Template Analyzer</strong></td><td>IaC</td><td>ARM, Bicep</td></tr>
+        <tr><td><strong>Trivy</strong></td><td>Dépendances</td><td>Paquets OS et manifestes de dépôts (npm, pip, Maven, NuGet, Go, Cargo)</td></tr>
+        <tr><td><strong>Syft</strong></td><td>SBOM</td><td>Génère l'inventaire des dépendances dans plus de 30 écosystèmes</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>Cartographie code-vers-cloud et analyse des chemins d'attaque</h3>
+
+  <div class="mermaid-wrapper">
+    <pre class="mermaid">
+graph LR
+    A["Dépôt GitHub\nInjection SQL dans /src/api\nRésultat CodeQL"] -->|compile| B["Image de conteneur\nImage de base vulnérable\nAnalyse de registre"]
+    B -->|déploie vers| C["Pod AKS\nExposé à Internet\nAccès aux données sensibles"]
+    C --> D["CHEMIN D'ATTAQUE\nCRITIQUE 9.8"]
+    D --> E["Exposition Internet"]
+    D --> F["Données sensibles"]
+    D --> G["Vuln. code + Base non corrigée"]
+    D --> H["Mouvement latéral"]
+
+    style A fill:#4a1530,stroke:#e11d48,stroke-width:2px,color:#e6edf3
+    style B fill:#42290a,stroke:#d97706,stroke-width:2px,color:#e6edf3
+    style C fill:#4a1530,stroke:#e11d48,stroke-width:2px,color:#e6edf3
+    style D fill:#4a1042,stroke:#db2777,stroke-width:3px,color:#e6edf3
+    style E fill:#3d0f1e,stroke:#f43f5e,color:#e6edf3
+    style F fill:#3d0f1e,stroke:#f43f5e,color:#e6edf3
+    style G fill:#3d0f1e,stroke:#f43f5e,color:#e6edf3
+    style H fill:#3d0f1e,stroke:#f43f5e,color:#e6edf3
+    </pre>
+  </div>
+
+  <h3>Architecture d'intégration GHAS + MDC</h3>
+
+  <div class="mermaid-wrapper">
+    <pre class="mermaid">
+graph TB
+    subgraph DEV["BOUCLE INTERNE DU DÉVELOPPEUR"]
+        IDE["IDE + Copilot"] --> PUSH["git push\n+ Push Protection"]
+        PUSH --> PR["Pull Request\n+ Revue de code"]
+        PR --> CICD["Pipeline CI/CD"]
+    end
+
+    subgraph GHAS["GITHUB ADVANCED SECURITY"]
+        SP["Secret Protection\n+ Push Protection"]
+        CS["Analyse de code CodeQL\n+ Copilot Autofix"]
+        DEP["Dependabot\nSécurité de la chaîne d'approvisionnement"]
+        SC["Campagnes de sécurité"]
+    end
+
+    subgraph BRIDGE["INTÉGRATION GHAS + MDC"]
+        C2C["Synchronisation bidirectionnelle\nAlertes, Contexte, Statut de correction"]
+    end
+
+    subgraph MDCS["MICROSOFT DEFENDER POUR LE CLOUD"]
+        DSPM["Sécurité DevOps\nGestion de posture"]
+        AGS["Analyse sans agent\nCode + IaC"]
+        CSPM["Defender CSPM\n+ Chemins d'attaque"]
+        PRA["Annotations PR"]
+    end
+
+    subgraph CLOUD["CHARGES DE TRAVAIL CLOUD"]
+        RC["Contexte d'exécution\nInternet, Données, Identité, Réseau"]
+    end
+
+    DEV --> GHAS
+    GHAS --> BRIDGE
+    BRIDGE --> MDCS
+    MDCS --> CLOUD
+
+    style DEV fill:#0c1929,stroke:#3b82f6,stroke-width:2px,color:#e6edf3
+    style GHAS fill:#1a1540,stroke:#4f46e5,stroke-width:2px,color:#e6edf3
+    style BRIDGE fill:#0a2e1e,stroke:#059669,stroke-width:3px,color:#e6edf3
+    style MDCS fill:#1a0a2e,stroke:#7c3aed,stroke-width:2px,color:#e6edf3
+    style CLOUD fill:#0a1e2e,stroke:#0ea5e9,stroke-width:2px,color:#e6edf3
+    </pre>
+  </div>
+
+  <h3>Priorisation des alertes en fonction de la production</h3>
+  <div class="table-wrapper">
+    <table>
+      <thead><tr><th>Facteur de risque</th><th>Source</th><th>Impact</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Exposition Internet</strong></td><td>Analyse réseau MDC</td><td>+Critique si exposé au public</td></tr>
+        <tr><td><strong>Accès aux données sensibles</strong></td><td>Classification des données MDC</td><td>+Élevé si données personnelles/financières</td></tr>
+        <tr><td><strong>Ressource critique</strong></td><td>Étiquettes de ressources MDC</td><td>+Élevé si charge de travail de production</td></tr>
+        <tr><td><strong>Mouvement latéral</strong></td><td>Analyse des chemins d'attaque MDC</td><td>+Critique si point de pivot</td></tr>
+        <tr><td><strong>Risque d'identité</strong></td><td>Analyse d'identité MDC</td><td>+Élevé si surpermissionné</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h4>Exigences de licence</h4>
+  <div class="table-wrapper">
+    <table>
+      <thead><tr><th>Fonctionnalité</th><th>Licence requise</th></tr></thead>
+      <tbody>
+        <tr><td>Analyse de code GHAS (CodeQL)</td><td>GitHub Code Security</td></tr>
+        <tr><td>Analyse de secrets GHAS + Push Protection</td><td>GitHub Secret Protection</td></tr>
+        <tr><td>Copilot Autofix</td><td>GitHub Code Security (inclus)</td></tr>
+        <tr><td>Copilot Coding Agent</td><td>Tout forfait payant GitHub Copilot</td></tr>
+        <tr><td>Sécurité DevOps MDC (de base)</td><td>Defender pour le cloud (niveau gratuit)</td></tr>
+        <tr><td>Analyse sans agent MDC + Annotations PR</td><td>Defender CSPM</td></tr>
+        <tr><td>Analyse des chemins d'attaque MDC</td><td>Defender CSPM</td></tr>
+        <tr><td>Intégration native GHAS + MDC</td><td>GitHub Code Security + Defender CSPM</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════ -->
+<!-- SECTION 4 — IA AGENTIQUE                              -->
+<!-- ══════════════════════════════════════════════════════ -->
+<section id="sec4">
+  <h2><span class="section-num">04</span> IA agentique pour le DevSecOps</h2>
+  <p class="section-lead">Des agents alimentés par l'IA opérant comme membres de votre équipe de développement — automatiser, optimiser et sécuriser chaque étape du SDLC.</p>
+
+  <h3>L'évolution agentique</h3>
+  <blockquote><strong>📊 Les développeurs ne consacrent qu'environ 20 % de leur temps à écrire du code.</strong> Les 80 % restants sont dédiés à la planification, la sécurisation, la gouvernance et la maintenance. L'IA agentique récupère ces 80 % en intégrant des agents autonomes dans l'ensemble du cycle de vie.</blockquote>
+  <div class="table-wrapper">
+    <table>
+      <thead><tr><th>Dimension</th><th>Sans agents</th><th>Avec agents</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Compétence</strong> — Ce qu'ils savent</td><td>Limitée à l'expertise individuelle</td><td>L'IA fournit des connaissances en sécurité à la demande</td></tr>
+        <tr><td><strong>Capacité</strong> — Ce qu'ils peuvent faire</td><td>Contrainte par la familiarité avec les outils</td><td>Les agents détectent, expliquent, corrigent et valident</td></tr>
+        <tr><td><strong>Volume</strong> — Combien ils peuvent traiter</td><td>Limité par les heures humaines</td><td>Les agents travaillent en parallèle, de manière asynchrone</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="mermaid-wrapper">
+    <pre class="mermaid">
+graph TB
+    subgraph BEFORE["DevSecOps TRADITIONNEL"]
+        B1["Revue de code manuelle"]
+        B2["Goulet d'étranglement de\nl'équipe de sécurité"]
+        B3["Remédiation différée\nsemaines / mois"]
+        B4["Lacunes en compétences\nbloquent l'adoption"]
+    end
+
+    subgraph AFTER["DevSecOps AGENTIQUE"]
+        A1["Les agents IA détectent\net corrigent en temps réel"]
+        A2["Sécurité intégrée dans\nle flux du développeur"]
+        A3["Remédiation immédiate\nminutes / heures"]
+        A4["Formation juste-à-temps"]
+    end
+
+    BEFORE -->|"Transformation agentique"| AFTER
+
+    style BEFORE fill:#4a1530,stroke:#e11d48,stroke-width:2px,color:#e6edf3
+    style AFTER fill:#0a2e1e,stroke:#059669,stroke-width:2px,color:#e6edf3
+    </pre>
+  </div>
+
+  <h3>GitHub Copilot Coding Agent</h3>
+  <p><strong>En disponibilité générale depuis le 19 mai 2025</strong> pour tous les abonnés payants de Copilot. Opère en tant que coéquipier autonome.</p>
+
+  <div class="mermaid-wrapper">
+    <pre class="mermaid">
+flowchart TD
+    A["Assigner une Issue GitHub\nà Copilot"] --> B["👀 L'agent démarre\nSandbox sécurisé via\nGitHub Actions"]
+    B --> C["Clone le dépôt → Configure l'env.\n→ Analyse avec RAG"]
+    C --> D["Modifie → Compile → Teste\nPousse vers un PR brouillon"]
+    D --> E["Demande une revue humaine\nRépond aux commentaires du PR"]
+    E --> F["L'humain approuve\n→ CI/CD → Fusionné"]
+
+    style A fill:#1e1b4b,stroke:#4f46e5,color:#e6edf3
+    style B fill:#3b0764,stroke:#7c3aed,color:#e6edf3
+    style C fill:#1e293b,stroke:#64748b,color:#e6edf3
+    style D fill:#1e293b,stroke:#64748b,color:#e6edf3
+    style E fill:#78350f,stroke:#d97706,color:#e6edf3
+    style F fill:#064e3b,stroke:#059669,stroke-width:2px,color:#e6edf3
+    </pre>
+  </div>
+
+  <h4>Politiques de sécurité intégrées</h4>
+  <div class="table-wrapper">
+    <table>
+      <thead><tr><th>Politique</th><th>Protection</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Restrictions de branche</strong></td><td>L'agent ne peut pousser que vers les branches qu'il a créées</td></tr>
+        <tr><td><strong>Revue obligatoire</strong></td><td>Le demandeur ne peut pas approuver le PR de l'agent</td></tr>
+        <tr><td><strong>Isolation réseau</strong></td><td>Accès Internet limité aux destinations de confiance (personnalisable)</td></tr>
+        <tr><td><strong>Contrôle CI/CD</strong></td><td>Les workflows Actions nécessitent une approbation humaine avant exécution</td></tr>
+        <tr><td><strong>Règles existantes appliquées</strong></td><td>Les ensembles de règles du dépôt et les politiques de l'organisation sont pleinement respectés</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>Agents de sécurité personnalisés</h3>
+  <p>Versions spécialisées du Copilot Coding Agent adaptées aux flux de travail de sécurité :</p>
+
+  <div class="card-grid">
+    <div class="card">
+      <span class="card-icon">🛡️</span>
+      <h4>Agent de sécurité principal</h4>
+      <p>Examine le dépôt pour les problèmes de sécurité et produit un rapport de sécurité complet</p>
+    </div>
+    <div class="card">
+      <span class="card-icon">🔍</span>
+      <h4>Agent de revue de code sécurité</h4>
+      <p>Réviseur de code axé sur la sécurité, vérifiant les vulnérabilités courantes (CWE)</p>
+    </div>
+    <div class="card">
+      <span class="card-icon">📋</span>
+      <h4>Agent de création de plan de sécurité</h4>
+      <p>Modélisation des menaces et architecture de sécurité avec expertise des cadres de référence</p>
+    </div>
+    <div class="card">
+      <span class="card-icon">⚙️</span>
+      <h4>Agent de pipeline de sécurité</h4>
+      <p>Détecte les faiblesses des workflows CI, corrige automatiquement les YAML GitHub Actions et Azure DevOps</p>
+    </div>
+    <div class="card">
+      <span class="card-icon">🏗️</span>
+      <h4>Agent de sécurité IaC</h4>
+      <p>Trouve les valeurs par défaut non sécurisées et les mauvaises configurations dans l'IaC et les configs cloud</p>
+    </div>
+    <div class="card">
+      <span class="card-icon">📦</span>
+      <h4>Agent de sécurité de la chaîne d'approvisionnement</h4>
+      <p>Détecte les fuites de secrets, les risques de dépendances et les mauvaises configurations de dépôts avec des correctifs prêts pour le PR</p>
+    </div>
+  </div>
+
+  <h3>Architecture agentique de bout en bout</h3>
+
+  <div class="mermaid-wrapper">
+    <pre class="mermaid">
+graph TB
+    subgraph PREVENT["🔒 PRÉVENIR"]
+        P1["Secret Protection\nPush Protection"]
+        P2["Copilot Secret Scanning\nDétection par IA"]
+        P3["Agents de sécurité personnalisés\nPré-commit dans VS Code"]
+    end
+
+    subgraph DETECT["🔍 DÉTECTER"]
+        D1["Analyse de code CodeQL"]
+        D2["Analyse sans agent MDC"]
+        D3["Dependabot"]
+        D4["Annotations PR MDC"]
+    end
+
+    subgraph FIX["🔧 CORRIGER"]
+        F1["Copilot Autofix"]
+        F2["Copilot Coding Agent"]
+        F3["Campagnes de sécurité"]
+        F4["Agents de sécurité personnalisés"]
+    end
+
+    subgraph MONITOR["📊 SURVEILLER"]
+        M1["Defender CSPM\nChemins d'attaque"]
+        M2["Cartographie code-vers-cloud"]
+        M3["Aperçu de sécurité\nTableau de bord"]
+        M4["Journaux d'audit → SIEM"]
+    end
+
+    PREVENT --> DETECT --> FIX --> MONITOR
+    MONITOR -->|"Le contexte d'exécution\nenrichit la priorisation"| DETECT
+
+    style PREVENT fill:#0a2e1e,stroke:#059669,stroke-width:2px,color:#e6edf3
+    style DETECT fill:#0c1929,stroke:#4f46e5,stroke-width:2px,color:#e6edf3
+    style FIX fill:#1a0a2e,stroke:#7c3aed,stroke-width:2px,color:#e6edf3
+    style MONITOR fill:#2e1f0a,stroke:#d97706,stroke-width:2px,color:#e6edf3
+    </pre>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════ -->
+<!-- SECTION 5 — PLAN DIRECTEUR                            -->
+<!-- ══════════════════════════════════════════════════════ -->
+<section id="sec5">
+  <h2><span class="section-num">05</span> Plan directeur DevSecOps</h2>
+  <p class="section-lead">Matrice complète des outils et modèle de maturité pour implémenter le DevSecOps agentique à grande échelle.</p>
+
+  <h3>Matrice des outils DevSecOps</h3>
+  <div class="table-wrapper">
+    <table>
+      <thead><tr><th>Catégorie</th><th>Directive</th><th>Outils et capacités</th><th>Automatisation</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Analyse de secrets</strong></td><td>Détecter et empêcher les secrets codés en dur</td><td>GitHub Secret Protection, Push Protection, Copilot Secret Scanning, modèles personnalisés</td><td>Automatique</td></tr>
+        <tr><td><strong>SCA</strong></td><td>Gérer les risques liés aux dépendances</td><td>Dependabot, revue de dépendances, attestations d'artefacts, SBOM, OpenSSF Scorecard, SLSA</td><td>Workflow / Auto</td></tr>
+        <tr><td><strong>SAST</strong></td><td>Détecter les vulnérabilités de code</td><td>CodeQL (par défaut et avancé), Copilot Autofix, SARIF tiers</td><td>Workflow / Auto</td></tr>
+        <tr><td><strong>Analyse IaC</strong></td><td>Sécuriser les configs d'infrastructure</td><td>MSDO : Checkov, Template Analyzer, Terrascan, Trivy</td><td>Workflow</td></tr>
+        <tr><td><strong>CIS</strong></td><td>Sécuriser la chaîne d'approvisionnement des conteneurs</td><td>MSDO : Checkov, Terrascan, Trivy, Anchore Grype</td><td>Workflow</td></tr>
+        <tr><td><strong>DAST</strong></td><td>Tester les applications en cours d'exécution</td><td>OWASP ZAP (maintenu par Checkmarx)</td><td>Workflow</td></tr>
+        <tr><td><strong>Analyse continue</strong></td><td>Surveillance de la posture en exécution</td><td>Microsoft Defender pour le cloud, Sentinel, Azure Policy</td><td>Workflow / Auto</td></tr>
+        <tr><td><strong>Conformité</strong></td><td>Gouvernance et audit</td><td>Configurations de sécurité GHAS (Policy-as-Code), contournement délégué, journaux d'audit</td><td>Appliqué</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>Modèle de maturité Shift Left en sécurité</h3>
+  <div class="table-wrapper">
+    <table>
+      <thead><tr><th>Niveau</th><th>Pratique</th><th>Outils</th></tr></thead>
+      <tbody>
+        <tr><td><strong>N1 — Réactif</strong></td><td>Revues de sécurité manuelles</td><td>Analyse ponctuelle</td></tr>
+        <tr><td><strong>N2 — Automatisé</strong></td><td>Analyse intégrée au CI/CD</td><td>CodeQL configuration par défaut, Dependabot</td></tr>
+        <tr><td><strong>N3 — Proactif</strong></td><td>Protection au push, contrôles de PR</td><td>Push protection pour les secrets, vérifications PR CodeQL</td></tr>
+        <tr><td><strong>N4 — Contextuel</strong></td><td>Priorisation tenant compte de l'exécution</td><td>GHAS + MDC, analyse des chemins d'attaque</td></tr>
+        <tr><td><strong>N5 — Agentique</strong></td><td>Sécurité autonome par IA</td><td>Copilot Autofix, Coding Agent, campagnes, agents personnalisés</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>Déploiement recommandé</h3>
+  <div class="phase-grid">
+    <div class="phase-card p1">
+      <div class="phase-num">Phase 1 — Fondation</div>
+      <h4>Activer et connecter</h4>
+      <ul>
+        <li>Activer GHAS sur tous les dépôts</li>
+        <li>Connecter GitHub à MDC</li>
+        <li>Activer l'analyse de secrets + push protection</li>
+        <li>Configurer Dependabot</li>
+      </ul>
+    </div>
+    <div class="phase-card p2">
+      <div class="phase-num">Phase 2 — Durcissement</div>
+      <h4>Renforcer et appliquer</h4>
+      <ul>
+        <li>CodeQL avancé pour les dépôts critiques</li>
+        <li>Analyse sans agent dans MDC</li>
+        <li>Annotations PR + contournement délégué</li>
+        <li>Intégration du workflow MSDO</li>
+      </ul>
+    </div>
+    <div class="phase-card p3">
+      <div class="phase-num">Phase 3 — Intelligence</div>
+      <h4>Contextualiser et campaigner</h4>
+      <ul>
+        <li>Intégration native GHAS + MDC</li>
+        <li>Analyse des chemins d'attaque</li>
+        <li>Campagnes de sécurité</li>
+        <li>Copilot Autofix sur tous les dépôts</li>
+      </ul>
+    </div>
+    <div class="phase-card p4">
+      <div class="phase-num">Phase 4 — Agentique</div>
+      <h4>Automatiser et passer à l'échelle</h4>
+      <ul>
+        <li>Copilot Coding Agent pour la sécurité</li>
+        <li>Agents de sécurité personnalisés</li>
+        <li>Journaux d'audit vers SIEM</li>
+        <li>Suivre les KPI de réduction de dette</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════ -->
+<!-- SECTION 6 — POINTS CLÉS                               -->
+<!-- ══════════════════════════════════════════════════════ -->
+<section id="sec6">
+  <h2><span class="section-num">06</span> Points clés et appel à l'action</h2>
+  <p class="section-lead">DevSecOps agentique — où nous allons et comment démarrer.</p>
+
+  <div class="card-grid">
+    <div class="card">
+      <span class="card-icon">🤖</span>
+      <h4>Le DevSecOps agentique est essentiel</h4>
+      <p>Pour construire des applications et des agents IA sécurisés à grande échelle — la sécurité comme citoyen de première classe de chaque flux de travail</p>
+    </div>
+    <div class="card">
+      <span class="card-icon">🔗</span>
+      <h4>GHAS + GHCP + MDC</h4>
+      <p>Ensemble, ils fournissent un tissu de sécurité complet du code au cloud — bidirectionnel, contextuel, piloté par l'IA</p>
+    </div>
+    <div class="card">
+      <span class="card-icon">⚡</span>
+      <h4>Remédiation 3 à 12× plus rapide</h4>
+      <p>Copilot Autofix et le Coding Agent réduisent considérablement l'effort de remédiation manuelle</p>
+    </div>
+    <div class="card">
+      <span class="card-icon">📐</span>
+      <h4>Plan directeur évolutif</h4>
+      <p>Opérationnaliser la sécurité applicative à grande échelle tout en maintenant la vélocité de développement</p>
+    </div>
+    <div class="card">
+      <span class="card-icon">🔄</span>
+      <h4>Modèles réutilisables</h4>
+      <p>Directives éprouvées pour détecter les secrets, les dépendances et les vulnérabilités de code automatiquement</p>
+    </div>
+  </div>
+
+  <div class="cta-box">
+    <h3>Quels agents DevSecOps allez-vous créer ?</h3>
+    <p>Déplacer la sécurité à gauche · Tirer parti de l'IA agentique · Accélérer l'innovation sécurisée · Réduire la dette de sécurité</p>
+    <p style="margin-top: 20px;">
+      <strong>Dépôt de démonstration :</strong>
+      <a href="https://github.com/devopsabcs-engineering/gh-advsec-devsecops" target="_blank">devopsabcs-engineering/gh-advsec-devsecops</a>
+    </p>
+  </div>
+
+  <h3>Démonstration : ce qui a été présenté</h3>
+  <div class="table-wrapper">
+    <table>
+      <thead><tr><th>#</th><th>Scénario</th><th>Outils en action</th></tr></thead>
+      <tbody>
+        <tr><td>1</td><td><strong>Secret détecté et bloqué</strong> — Push protection empêchant un PAT GitHub d'être commité</td><td>GitHub Secret Protection, Push Protection</td></tr>
+        <tr><td>2</td><td><strong>Copilot Autofix en action</strong> — Injection SQL corrigée en moins de 30 secondes avec application en un clic</td><td>CodeQL, Copilot Autofix</td></tr>
+        <tr><td>3</td><td><strong>Agent de sécurité personnalisé</strong> — Agent IaC de sécurité détectant un RBAC Kubernetes mal configuré</td><td>Agents personnalisés, VS Code</td></tr>
+        <tr><td>4</td><td><strong>Tableau de bord de campagne de sécurité</strong> — Campagne de remédiation XSS à l'échelle de l'organisation</td><td>Campagnes de sécurité, Copilot Autofix</td></tr>
+        <tr><td>5</td><td><strong>MDC code-vers-cloud</strong> — Traçage d'une vulnérabilité de code vers son exécution exposée à Internet</td><td>Defender CSPM, Analyse des chemins d'attaque</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════ -->
+<!-- SECTION 7 — RÉFÉRENCES                                -->
+<!-- ══════════════════════════════════════════════════════ -->
+<section id="sec7">
+  <h2><span class="section-num">07</span> Références</h2>
+  <p class="section-lead">Toutes les sources utilisées dans ce guide — fondées sur la documentation publique de GitHub, Microsoft et de l'industrie.</p>
+
+  <h3>Documentation GitHub</h3>
+  <div class="table-wrapper">
+    <table>
+      <thead><tr><th>Ressource</th><th>URL</th></tr></thead>
+      <tbody>
+        <tr><td>À propos de GitHub Advanced Security</td><td><a href="https://docs.github.com/en/get-started/learning-about-github/about-github-advanced-security" target="_blank">docs.github.com</a></td></tr>
+        <tr><td>Restructuration du produit GHAS (mars 2025)</td><td><a href="https://github.blog/changelog/2025-03-04-introducing-github-secret-protection-and-github-code-security/" target="_blank">github.blog/changelog</a></td></tr>
+        <tr><td>Documentation CodeQL</td><td><a href="https://codeql.github.com/docs/" target="_blank">codeql.github.com</a></td></tr>
+        <tr><td>Copilot Autofix — Found Means Fixed</td><td><a href="https://github.blog/security/vulnerability-research/found-means-fixed-introducing-code-scanning-autofix-powered-by-github-copilot-and-codeql/" target="_blank">github.blog</a></td></tr>
+        <tr><td>Copilot Coding Agent (GA)</td><td><a href="https://github.blog/news-insights/product-news/github-copilot-meet-the-new-coding-agent/" target="_blank">github.blog</a></td></tr>
+        <tr><td>Copilot — The Agent Awakens</td><td><a href="https://github.blog/news-insights/product-news/github-copilot-the-agent-awakens/" target="_blank">github.blog</a></td></tr>
+        <tr><td>À propos des agents personnalisés</td><td><a href="https://docs.github.com/en/copilot/concepts/agents/coding-agent/about-custom-agents" target="_blank">docs.github.com</a></td></tr>
+        <tr><td>Documentation de l'analyse de secrets</td><td><a href="https://docs.github.com/en/code-security/secret-scanning" target="_blank">docs.github.com</a></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>Documentation Microsoft</h3>
+  <div class="table-wrapper">
+    <table>
+      <thead><tr><th>Ressource</th><th>URL</th></tr></thead>
+      <tbody>
+        <tr><td>Sécurité DevOps Defender pour le cloud</td><td><a href="https://learn.microsoft.com/en-us/azure/defender-for-cloud/defender-for-devops-introduction" target="_blank">learn.microsoft.com</a></td></tr>
+        <tr><td>Intégration GHAS avec MDC</td><td><a href="https://learn.microsoft.com/en-us/azure/defender-for-cloud/github-advanced-security-overview" target="_blank">learn.microsoft.com</a></td></tr>
+        <tr><td>Connecter GitHub à Defender pour le cloud</td><td><a href="https://learn.microsoft.com/en-us/azure/defender-for-cloud/quickstart-onboard-github" target="_blank">learn.microsoft.com</a></td></tr>
+        <tr><td>Analyse de code sans agent</td><td><a href="https://learn.microsoft.com/en-us/azure/defender-for-cloud/agentless-code-scanning" target="_blank">learn.microsoft.com</a></td></tr>
+        <tr><td>Analyse des chemins d'attaque</td><td><a href="https://learn.microsoft.com/en-us/azure/defender-for-cloud/concept-attack-path" target="_blank">learn.microsoft.com</a></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>Rapports de l'industrie</h3>
+  <div class="table-wrapper">
+    <table>
+      <thead><tr><th>Ressource</th><th>Source</th></tr></thead>
+      <tbody>
+        <tr><td>Rapport d'enquête sur les violations de données 2024</td><td>Verizon</td></tr>
+        <tr><td>Rapport sur le coût d'une violation de données 2024</td><td>IBM</td></tr>
+        <tr><td>État de la sécurité logicielle 2024</td><td>Veracode</td></tr>
+        <tr><td>Rapport sur l'état du DevSecOps 2024</td><td>Contrast Security</td></tr>
+        <tr><td>Cadre de développement logiciel sécurisé du NIST</td><td>NIST</td></tr>
+        <tr><td>Cadre SLSA</td><td>slsa.dev</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+</div><!-- /container -->
+
+<div class="footer">
+  <p><em>Certaines fonctionnalités décrites peuvent être en préversion en avril 2026. Vérifiez toujours avec la documentation officielle.</em></p>
+  <p style="margin-top: 12px;">Préparé pour Productivité des développeurs — Appel communautaire GitHub Technical Insiders | 2 avril 2026</p>
+  <p>Calin Lupas &amp; Emmanuel Knafo — Architectes solutions cloud séniors, Conseillers DevSecOps, Microsoft Canada</p>
+</div>
+
+<script>
+mermaid.initialize({
+  startOnLoad: true,
+  theme: 'dark',
+  themeVariables: {
+    darkMode: true,
+    background: '#161b22',
+    primaryColor: '#1e1b4b',
+    primaryTextColor: '#e6edf3',
+    primaryBorderColor: '#4f46e5',
+    lineColor: '#58a6ff',
+    secondaryColor: '#3b0764',
+    tertiaryColor: '#064e3b',
+    fontFamily: 'Inter, -apple-system, sans-serif',
+    fontSize: '14px'
+  },
+  flowchart: {
+    htmlLabels: true,
+    curve: 'basis',
+    padding: 15,
+    nodeSpacing: 50,
+    rankSpacing: 50
+  }
+});
+</script>
+</body>
+</html>
