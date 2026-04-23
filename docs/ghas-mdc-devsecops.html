@@ -416,10 +416,49 @@ pre code { background: none; padding: 0; color: inherit; }
   .toc { display: none; }
   section { break-inside: avoid; }
   .mermaid-wrapper { break-inside: avoid; }
+  .lang-switcher { display: none; }
+}
+
+/* ── Language Switcher ──────────────────────────────── */
+.lang-switcher {
+  position: fixed;
+  top: 16px;
+  right: 20px;
+  z-index: 200;
+  display: flex;
+  gap: 0;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid var(--card-border);
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+.lang-switcher a {
+  padding: 6px 14px;
+  color: var(--gh-text-muted);
+  text-decoration: none;
+  background: var(--card-bg);
+  transition: all 0.2s;
+}
+.lang-switcher a:hover {
+  color: var(--gh-text);
+  background: rgba(88,166,255,0.1);
+  text-decoration: none;
+}
+.lang-switcher a.active {
+  color: var(--gh-dark);
+  background: var(--gh-cyan);
+  pointer-events: none;
 }
 </style>
 </head>
 <body>
+
+<!-- Language Switcher -->
+<div class="lang-switcher">
+  <a href="ghas-mdc-devsecops.html" class="active">EN</a>
+  <a href="ghas-mdc-devsecops-fr.html">FR</a>
+</div>
 
 <!-- ══════════════════════════════════════════════════════ -->
 <!-- HERO                                                   -->
