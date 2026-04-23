@@ -25,6 +25,8 @@ resource acr 'Microsoft.ContainerRegistry/registries@2023-01-01-preview' = {
   }
   properties: {
     adminUserEnabled: false // Use managed identity instead
+    publicNetworkAccess: 'Disabled'
+    networkRuleBypassOptions: 'AzureServices'
   }
 }
 
@@ -53,7 +55,11 @@ resource webApp 'Microsoft.Web/sites@2024-04-01' = {
   }
   properties: {
     serverFarmId: appServicePlan.id
+    httpsOnly: true
     siteConfig: {
+      minTlsVersion: '1.2'
+      ftpsState: 'Disabled'
+      alwaysOn: true
       acrUseManagedIdentityCreds: true // Use managed identity for ACR authentication
       appSettings: [
         {
