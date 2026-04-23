@@ -204,6 +204,18 @@ jobs:
           app-name: ${{ env.AZURE_WEBAPP_NAME }}
           images: "${{ env.AZURE_ACR_NAME }}.azurecr.io/webapp01:${{ github.sha }}"
 
+      - name: Add deployment link to summary
+        run: |
+          echo "## 🚀 Deployed Environment" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Web App:** [${{ env.AZURE_WEBAPP_NAME }}](https://${{ needs.deploy-infrastructure.outputs.webapp_url }})" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Resource | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| URL | https://${{ needs.deploy-infrastructure.outputs.webapp_url }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Image | \`${{ env.AZURE_ACR_NAME }}.azurecr.io/webapp01:${{ github.sha }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Commit | \`${{ github.sha }}\` |" >> $GITHUB_STEP_SUMMARY
+
       - name: logout
         run: |
           az logout
