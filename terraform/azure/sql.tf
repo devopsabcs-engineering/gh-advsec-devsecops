@@ -12,7 +12,7 @@ resource "azurerm_sql_server" "example" {
   location                     = azurerm_resource_group.example.location
   version                      = "12.0"
   administrator_login          = "ariel"
-  administrator_login_password = "Aa12345678"
+  administrator_login_password = random_password.sql_admin_password.result
   tags = {
     environment = var.environment
     terragoat   = "true"
@@ -25,11 +25,8 @@ resource "azurerm_mssql_server_security_alert_policy" "example" {
   state                      = "Enabled"
   storage_endpoint           = azurerm_storage_account.example.primary_blob_endpoint
   storage_account_access_key = azurerm_storage_account.example.primary_access_key
-  disabled_alerts = [
-    "Sql_Injection",
-    "Data_Exfiltration"
-  ]
-  retention_days = 20
+  disabled_alerts            = []
+  retention_days             = 20
 }
 
 resource "azurerm_mysql_server" "example" {
@@ -61,7 +58,7 @@ resource "azurerm_postgresql_server" "example" {
   geo_redundant_backup_enabled = false
   auto_grow_enabled            = true
   administrator_login          = "terragoat"
-  administrator_login_password = "Aa12345678"
+  administrator_login_password = random_password.postgresql_admin_password.result
   version                      = "9.5"
   ssl_enforcement_enabled      = false
 }

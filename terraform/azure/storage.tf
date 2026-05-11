@@ -5,17 +5,19 @@ resource "azurerm_managed_disk" "example" {
   storage_account_type = "Standard_LRS"
   create_option        = "Empty"
   disk_size_gb         = 1
-  encryption_settings {
-    enabled = false
-  }
+  
+  # Enable encryption at host for data at rest
+  encryption_at_host_enabled = true
 }
 
 resource "azurerm_storage_account" "example" {
-  name                     = "tgsa${var.environment}${random_integer.rnd_int.result}"
-  resource_group_name      = azurerm_resource_group.example.name
-  location                 = azurerm_resource_group.example.location
-  account_tier             = "Standard"
-  account_replication_type = "GRS"
+  name                       = "tgsa${var.environment}${random_integer.rnd_int.result}"
+  resource_group_name        = azurerm_resource_group.example.name
+  location                   = azurerm_resource_group.example.location
+  account_tier               = "Standard"
+  account_replication_type   = "GRS"
+  https_traffic_only_enabled = true
+  min_tls_version            = "TLS1_2"
   queue_properties {
     logging {
       delete                = false
