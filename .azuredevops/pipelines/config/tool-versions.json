@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "policy": {
+    "forbiddenMutableReferences": ["latest", "main", "master"],
+    "requiredHashAlgorithm": "SHA256",
+    "unverifiedIntegrityBehavior": "required-administrative-input"
+  },
+  "references": [
+    { "id": "dotnet-sdk", "kind": "runtime-channel", "version": "9.0.x", "sourceEvidence": ".github/workflows/ci.yml" },
+    { "id": "node", "kind": "runtime-major", "version": "22", "sourceEvidence": ".github/workflows/security-agent-workflow.yml" },
+    { "id": "eslint", "kind": "npm", "version": "8.10.0", "package": "eslint", "integrityInput": "ESLINT_8_10_0_INTEGRITY", "requiredInput": true },
+    { "id": "eslint-sarif-formatter", "kind": "npm", "version": "3.1.0", "package": "@microsoft/eslint-formatter-sarif", "integrityInput": "ESLINT_SARIF_FORMATTER_3_1_0_INTEGRITY", "requiredInput": true },
+    { "id": "actions-checkout-source", "kind": "source-action", "version": "6.0.2", "commit": "de0fac2e4500dabe0009e67214ff5f5447ce83dd", "sourceEvidence": ".github/workflows/ci.yml" },
+    { "id": "github-codeql-action-source", "kind": "source-action", "version": "4.35.1", "commit": "c10b8064de6f491fea524254123dbe5e09572f13", "sourceEvidence": ".github/workflows/SAST-GitHubAdvancedSecurity-CodeQL.yml" },
+    { "id": "microsoft-security-devops-action-source", "kind": "source-action", "version": "1.12.0", "commit": "08976cb623803b1b36d7112d4ff9f59eae704de0", "sourceEvidence": ".github/workflows/MSDO-Microsoft-Security-DevOps.yml" },
+    { "id": "kics-source", "kind": "source-action", "version": "2.1.20", "commit": "05aa5eb70eede1355220f4ca5238d96b397e30a6", "sourceEvidence": ".github/workflows/IACS-Checkmarx-kics.yml" },
+    { "id": "tfsec-source", "kind": "source-action", "version": "0.1.4", "commit": "21ded20e8ca120cd9d3d6ab04ef746477542a608", "sourceEvidence": ".github/workflows/IACS-AquaSecurity-tfsec.yml" },
+    { "id": "trivy-source", "kind": "source-action", "version": "0.35.0", "commit": "57a97c7e7821a5776cebc9bb87c984fa69cba8f1", "sourceEvidence": ".github/workflows/CIS-Trivy-AquaSecurity.yml" },
+    { "id": "grype-source", "kind": "source-action", "version": "7.4.0", "commit": "e1165082ffb1fe366ebaf02d8526e7c4989ea9d2", "sourceEvidence": ".github/workflows/CIS-Anchore-Grype.yml" },
+    { "id": "syft-source", "kind": "source-action", "version": "0.20.5", "commit": "da167eac915b4e86f08b264dbdbc867b61be6f0c", "sourceEvidence": ".github/workflows/SCA-Anchore-Syft-SBOM.yml" },
+    { "id": "kubesec-source", "kind": "source-action", "version": "0.0.2", "commit": "43d0ddff5ffee89a6bb9f29b64cd865411137b14", "sourceEvidence": ".github/workflows/SAST-Kubesec.yml" },
+    { "id": "openssf-scorecard-source", "kind": "source-action", "version": "2.4.3", "commit": "4eaacf0543bb3f2c246792bd56e8cdeffafb205a", "sourceEvidence": ".github/workflows/SCA-OpenSSF-Scorecard.yml" },
+    { "id": "cosign", "kind": "download", "versionInput": "COSIGN_VERSION", "urlInput": "COSIGN_DOWNLOAD_URL", "sha256Input": "COSIGN_SHA256", "requiredInput": true },
+    { "id": "microsoft-sbom-tool", "kind": "download", "versionInput": "SBOM_TOOL_VERSION", "urlInput": "SBOM_TOOL_DOWNLOAD_URL", "sha256Input": "SBOM_TOOL_SHA256", "requiredInput": true },
+    { "id": "sarif-validator", "kind": "download", "versionInput": "SARIF_VALIDATOR_VERSION", "urlInput": "SARIF_VALIDATOR_DOWNLOAD_URL", "sha256Input": "SARIF_VALIDATOR_SHA256", "requiredInput": true },
+    { "id": "zaproxy", "kind": "container", "imageInput": "ZAP_IMAGE", "digestInput": "ZAP_IMAGE_DIGEST", "requiredInput": true },
+    { "id": "trivy", "kind": "container-or-download", "versionInput": "TRIVY_VERSION", "digestOrSha256Input": "TRIVY_DIGEST_OR_SHA256", "requiredInput": true },
+    { "id": "grype", "kind": "container-or-download", "versionInput": "GRYPE_VERSION", "digestOrSha256Input": "GRYPE_DIGEST_OR_SHA256", "requiredInput": true },
+    { "id": "syft", "kind": "container-or-download", "versionInput": "SYFT_VERSION", "digestOrSha256Input": "SYFT_DIGEST_OR_SHA256", "requiredInput": true },
+    { "id": "kics", "kind": "container-or-download", "versionInput": "KICS_VERSION", "digestOrSha256Input": "KICS_DIGEST_OR_SHA256", "requiredInput": true },
+    { "id": "tfsec", "kind": "container-or-download", "versionInput": "TFSEC_VERSION", "digestOrSha256Input": "TFSEC_DIGEST_OR_SHA256", "requiredInput": true },
+    { "id": "kubesec", "kind": "container", "imageInput": "KUBESEC_IMAGE", "digestInput": "KUBESEC_IMAGE_DIGEST", "requiredInput": true },
+    { "id": "copilot-cli", "kind": "npm", "versionInput": "COPILOT_CLI_VERSION", "integrityInput": "COPILOT_CLI_INTEGRITY", "requiredInput": true }
+  ]
+}

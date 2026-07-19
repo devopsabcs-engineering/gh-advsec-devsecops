@@ -1,0 +1,88 @@
+trigger:
+  branches:
+    include:
+      - main
+
+schedules:
+  - cron: '15 03 * * 5'
+    displayName: Friday KICS scan
+    branches:
+      include:
+        - main
+    always: true
+
+pool:
+  vmImage: ubuntu-latest
+
+variables:
+  KICS_RESULTS: $(Build.ArtifactStagingDirectory)/kics-results
+  KICS_SARIF: $(Build.ArtifactStagingDirectory)/kics-results/results.sarif
+
+steps:
+  - checkout: self
+    persistCredentials: false
+
+  - pwsh: |
+      $ErrorActionPreference = 'Stop'
+      if ($env:KICS_IMAGE -notmatch '^[a-z0-9][a-z0-9._/-]*$') { throw 'KICS_IMAGE must identify a reviewed container repository without a tag.' }
+      if ($env:KICS_DIGEST_OR_SHA256 -notmatch '^sha256:[a-fA-F0-9]{64}$') { throw 'KICS_DIGEST_OR_SHA256 must be an approved container digest.' }
+      if ([string]::IsNullOrWhiteSpace($env:KICS_VERSION)) { throw 'KICS_VERSION is required for audited tool inventory.' }
+
+      New-Item -ItemType Directory -Path '$(KICS_RESULTS)' -Force | Out-Null
+      $resultsDirectory = (Resolve-Path -LiteralPath '$(KICS_RESULTS)').Path
+      $dockerUser = "$(id -u):$(id -g)"
+      docker run --rm `
+          --user $dockerUser `
+          --volume '$(Build.SourcesDirectory)/terraform:/scan:ro' `
+          --volume "${resultsDirectory}:/results" `
+          "$env:KICS_IMAGE@$env:KICS_DIGEST_OR_SHA256" `
+          scan --path /scan --type terraform --output-path /results --report-formats 'json,sarif' --output-name results --no-progress --ignore-on-exit results
+      if ($LASTEXITCODE -ne 0) { throw "KICS execution failed with exit code $LASTEXITCODE." }
+
+      $json = Get-Content -LiteralPath '$(KICS_RESULTS)/results.json' -Raw | ConvertFrom-Json -Depth 100
+      if ($null -eq $json) { throw 'KICS JSON report is empty or malformed.' }
+    displayName: Run immutable report-only KICS scan
+    env:
+      KICS_IMAGE: $(KICS_IMAGE)
+      KICS_VERSION: $(KICS_VERSION)
+      KICS_DIGEST_OR_SHA256: $(KICS_DIGEST_OR_SHA256)
+
+  - template: templates/publish-sarif.yml
+    parameters:
+      sarifPath: $(KICS_SARIF)
+      reportType: third-party-sarif
+
+  - task: PublishPipelineArtifact@1
+    displayName: Publish KICS JSON evidence
+    inputs:
+      targetPath: $(KICS_RESULTS)/results.json
+      artifact: kics-json
+
+  - pwsh: |
+      $ErrorActionPreference = 'Stop'
+      if ('$(Build.Reason)' -ne 'PullRequest') { return }
+      if ([string]::IsNullOrWhiteSpace($env:SYSTEM_ACCESSTOKEN)) { throw 'SYSTEM_ACCESSTOKEN must be mapped for KICS pull request feedback.' }
+      $json = Get-Content -LiteralPath '$(KICS_RESULTS)/results.json' -Raw | ConvertFrom-Json -Depth 100
+      $summaryPath = Join-Path '$(Agent.TempDirectory)' 'kics-summary.md'
+      $queries = @($json.queries)
+      $summary = @(
+          '# KICS Terraform scan'
+          ''
+          "Queries with results: $($queries.Count)"
+          ''
+          "Source revision: $(Build.SourceVersion)"
+          ''
+          'Findings are report-only. See the CodeAnalysisLogs and kics-json artifacts for authoritative evidence.'
+      ) -join [Environment]::NewLine
+      Set-Content -LiteralPath $summaryPath -Value $summary -Encoding utf8NoBOM
+      & '$(Build.SourcesDirectory)/scripts/azure-devops/Set-PullRequestComment.ps1' `
+          -OrganizationUrl '$(System.CollectionUri)' `
+          -Project '$(System.TeamProject)' `
+          -RepositoryId '$(Build.Repository.ID)' `
+          -PullRequestId ([int]'$(System.PullRequest.PullRequestId)') `
+          -MarkdownPath $summaryPath `
+          -CommentMarker '<!-- kics-scan-summary:v1 -->' `
+          -AccessToken $env:SYSTEM_ACCESSTOKEN
+    displayName: Publish marker-owned KICS pull request summary
+    env:
+      SYSTEM_ACCESSTOKEN: $(System.AccessToken)

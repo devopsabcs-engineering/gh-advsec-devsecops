@@ -1,0 +1,58 @@
+trigger:
+  branches:
+    include:
+      - main
+
+schedules:
+  - cron: '18 8 * * 6'
+    displayName: Saturday Kubesec scan
+    branches:
+      include:
+        - main
+    always: true
+
+pool:
+  vmImage: ubuntu-latest
+
+variables:
+  KUBESEC_JSON: $(Build.ArtifactStagingDirectory)/kubesec/kubesec.json
+  KUBESEC_SARIF: $(Build.ArtifactStagingDirectory)/sarif/kubesec.sarif
+
+steps:
+  - checkout: self
+    persistCredentials: false
+
+  - pwsh: |
+      $ErrorActionPreference = 'Stop'
+      if ($env:KUBESEC_IMAGE -notmatch '^[a-z0-9][a-z0-9._/-]*$') { throw 'KUBESEC_IMAGE must identify a reviewed container repository without a tag.' }
+      if ($env:KUBESEC_IMAGE_DIGEST -notmatch '^sha256:[a-fA-F0-9]{64}$') { throw 'KUBESEC_IMAGE_DIGEST must be an approved SHA-256 digest.' }
+
+      $jsonDirectory = Split-Path -Parent '$(KUBESEC_JSON)'
+      $sarifDirectory = Split-Path -Parent '$(KUBESEC_SARIF)'
+      New-Item -ItemType Directory -Path $jsonDirectory, $sarifDirectory -Force | Out-Null
+      $reports = [System.Collections.Generic.List[object]]::new()
+      foreach ($manifest in @('manifests/critical-double.yaml', 'manifests/score-5-pod-serviceaccount.yaml')) {
+          $output = docker run --rm `
+              --volume '$(Build.SourcesDirectory):/workspace:ro' `
+              "$env:KUBESEC_IMAGE@$env:KUBESEC_IMAGE_DIGEST" `
+              scan "/workspace/$manifest"
+          $scanExitCode = $LASTEXITCODE
+          if ($scanExitCode -notin @(0, 2)) { throw "Kubesec execution failed for $manifest with exit code $scanExitCode." }
+          $document = $output | ConvertFrom-Json -Depth 100
+          foreach ($entry in @($document)) {
+              $entry.FileName = $manifest
+              $reports.Add($entry)
+          }
+      }
+      $reports | ConvertTo-Json -Depth 100 | Set-Content -LiteralPath '$(KUBESEC_JSON)' -Encoding utf8NoBOM
+      & '$(Build.SourcesDirectory)/scripts/sarif/Convert-KubesecToSarif.ps1' -InputPath '$(KUBESEC_JSON)' -OutputPath '$(KUBESEC_SARIF)'
+      exit 0
+    displayName: Scan exactly two manifests and convert deterministically
+    env:
+      KUBESEC_IMAGE: $(KUBESEC_IMAGE)
+      KUBESEC_IMAGE_DIGEST: $(KUBESEC_IMAGE_DIGEST)
+
+  - template: templates/publish-sarif.yml
+    parameters:
+      sarifPath: $(KUBESEC_SARIF)
+      reportType: third-party-sarif

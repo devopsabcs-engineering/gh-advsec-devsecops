@@ -1,0 +1,245 @@
+{
+  "schemaVersion": 1,
+  "repositoryProvider": "azureRepos",
+  "pullRequestMechanism": "branchPolicy",
+  "targetBranch": "refs/heads/main",
+  "requiredWorkflowCount": 19,
+  "contracts": [
+    {
+      "source": ".github/workflows/ci.yml",
+      "target": ".azuredevops/pipelines/ci.yml",
+      "triggers": { "push": [], "pullRequest": ["main"], "manual": false, "schedules": [] },
+      "runtime": { "dotnet": "9.0.x" },
+      "gates": ["dotnet-restore", "release-build", "docker-build"],
+      "artifacts": [],
+      "retentionDays": null,
+      "sideEffects": ["azure-repos-build-validation-policy"]
+    },
+    {
+      "source": ".github/workflows/cicd.yml",
+      "target": ".azuredevops/pipelines/cicd.yml",
+      "triggers": { "push": ["main"], "pullRequest": [], "manual": true, "schedules": [] },
+      "parameters": { "locationDefault": "canadacentral", "locationChoices": ["canadacentral", "canadaeast", "eastus", "eastus2", "westus", "westus2", "westeurope", "northeurope"], "instanceDefault": "007" },
+      "gates": ["bicep-deployment", "managed-identity-acr-pull", "signed-digest-evidence", "http-readiness"],
+      "artifacts": ["signed-image-evidence"],
+      "retentionDays": null,
+      "retentionLeaseDaysInput": "AUDIT_RETENTION_LEASE_DAYS",
+      "sideEffects": ["azure-resource-deployment", "acr-push", "app-service-digest-deployment"]
+    },
+    {
+      "source": ".github/workflows/CIS-Anchore-Grype.yml",
+      "target": ".azuredevops/pipelines/cis-anchore-grype.yml",
+      "triggers": { "push": ["main"], "pullRequest": ["main"], "manual": false, "schedules": [{ "cronUtc": "0 1 * * 0", "always": true }] },
+      "gates": ["scanner-execution", "sarif-schema"],
+      "findingGate": { "enabled": false, "sourceSeverityCutoff": "critical" },
+      "artifacts": ["CodeAnalysisLogs"],
+      "retentionDays": null,
+      "sideEffects": ["third-party-sarif-publication"]
+    },
+    {
+      "source": ".github/workflows/CIS-Trivy-AquaSecurity.yml",
+      "target": ".azuredevops/pipelines/cis-trivy.yml",
+      "triggers": { "push": ["main"], "pullRequest": ["main"], "manual": false, "schedules": [{ "cronUtc": "0 1 * * 0", "always": true }] },
+      "gates": ["scanner-execution", "sarif-schema"],
+      "findingGate": { "enabled": false },
+      "artifacts": ["CodeAnalysisLogs"],
+      "retentionDays": null,
+      "sideEffects": ["third-party-sarif-publication"]
+    },
+    {
+      "source": ".github/workflows/DAST-ZAP-Zed-Attach-Proxy-Checkmarx.yml",
+      "target": ".azuredevops/pipelines/dast-zap.yml",
+      "triggers": { "push": ["main"], "pullRequest": [], "manual": false, "schedules": [{ "cronUtc": "0 1 * * 0", "always": true }] },
+      "parameters": { "targetDefault": "http://127.0.0.1:8080", "buildAndStartDefault": true, "hostPortDefault": 8080, "containerPort": 8080, "authorizationInput": "ZAP_AUTHORIZATION_RECORD" },
+      "gates": ["target-authorization", "target-readiness", "scanner-execution", "report-validation"],
+      "findingGate": { "enabled": false },
+      "artifacts": ["CodeAnalysisLogs", "zap-reports"],
+      "retentionDays": null,
+      "sideEffects": ["authorized-active-scan", "third-party-sarif-publication"]
+    },
+    {
+      "source": ".github/workflows/enforce-ghas-policy.yml",
+      "target": ".azuredevops/pipelines/enforce-ghas-policy.yml",
+      "triggers": { "push": [], "pullRequest": [], "manual": true, "schedules": [{ "cronUtc": "0 6 * * *", "always": true }] },
+      "parameters": { "dryRunDefault": false, "dispositionInput": "PLATFORM_GAP_ORG_POLICY_DISPOSITION" },
+      "gates": ["approved-platform-gap-disposition", "dry-run-default-before-mutation", "post-apply-verification"],
+      "artifacts": ["governance-report", "governance-apply-report"],
+      "retentionDays": null,
+      "sideEffects": ["approved-azure-devops-governance-or-explicit-retirement"]
+    },
+    {
+      "source": ".github/workflows/IACS-AquaSecurity-tfsec.yml",
+      "target": ".azuredevops/pipelines/iacs-aquasecurity-tfsec.yml",
+      "triggers": { "push": ["main"], "pullRequest": ["main"], "manual": false, "schedules": [{ "cronUtc": "15 03 * * 5", "always": true }] },
+      "scope": ["terraform"],
+      "gates": ["scanner-execution", "sarif-schema"],
+      "findingGate": { "enabled": false, "sourceThreshold": "tool-default" },
+      "artifacts": ["CodeAnalysisLogs"],
+      "retentionDays": null,
+      "sideEffects": ["third-party-sarif-publication"]
+    },
+    {
+      "source": ".github/workflows/IACS-Checkmarx-kics.yml",
+      "target": ".azuredevops/pipelines/iacs-checkmarx-kics.yml",
+      "triggers": { "push": ["main"], "pullRequest": ["main"], "manual": false, "schedules": [{ "cronUtc": "15 03 * * 5", "always": true }] },
+      "scope": ["terraform"],
+      "gates": ["scanner-execution", "sarif-schema", "pull-request-feedback"],
+      "findingGate": { "enabled": false },
+      "artifacts": ["CodeAnalysisLogs", "kics-json"],
+      "retentionDays": null,
+      "sideEffects": ["third-party-sarif-publication", "pull-request-summary"]
+    },
+    {
+      "source": ".github/workflows/IACS-Microsoft-Security-DevOps.yml",
+      "target": ".azuredevops/pipelines/iacs-microsoft-security-devops.yml",
+      "triggers": { "push": ["main"], "pullRequest": ["main"], "manual": false, "schedules": [{ "cronUtc": "15 03 * * 5", "always": true }] },
+      "scope": ["terraform", "blueprints", "manifests"],
+      "gates": ["msdo-execution", "native-result-publication", "third-party-sarif-schema"],
+      "artifacts": ["CodeAnalysisLogs"],
+      "retentionDays": null,
+      "sideEffects": ["ghazdo-native-publication", "third-party-sarif-publication"]
+    },
+    {
+      "source": ".github/workflows/MSDO-Microsoft-Security-DevOps.yml",
+      "target": ".azuredevops/pipelines/msdo-security-devops.yml",
+      "triggers": { "push": ["main"], "pullRequest": ["main"], "manual": false, "schedules": [{ "cronUtc": "42 13 * * 5", "always": true }] },
+      "agent": "windows-latest",
+      "tools": ["bandit", "checkov", "templateanalyzer", "terrascan", "trivy"],
+      "gates": ["msdo-execution", "result-publication"],
+      "artifacts": ["CodeAnalysisLogs"],
+      "retentionDays": null,
+      "sideEffects": ["msdo-publication"]
+    },
+    {
+      "source": ".github/workflows/SAST-ESLint.yml",
+      "target": ".azuredevops/pipelines/sast-eslint.yml",
+      "triggers": { "push": ["main"], "pullRequest": ["main"], "manual": false, "schedules": [{ "cronUtc": "39 9 * * 4", "always": true }] },
+      "tools": ["eslint@8.10.0", "@microsoft/eslint-formatter-sarif@3.1.0"],
+      "gates": ["sarif-schema"],
+      "findingGate": { "enabled": false, "continueOnError": true },
+      "artifacts": ["CodeAnalysisLogs"],
+      "retentionDays": null,
+      "sideEffects": ["third-party-sarif-publication"]
+    },
+    {
+      "source": ".github/workflows/SAST-GitHubAdvancedSecurity-CodeQL.yml",
+      "target": ".azuredevops/pipelines/sast-codeql.yml",
+      "triggers": { "push": ["main"], "pullRequest": ["main"], "manual": false, "schedules": [{ "cronUtc": "26 8 * * 2", "always": true }] },
+      "languages": ["csharp", "python", "javascript"],
+      "buildMode": "none",
+      "queries": "security-and-quality",
+      "failFast": false,
+      "gates": ["ghazdo-codeql-analysis"],
+      "artifacts": [],
+      "retentionDays": null,
+      "platformGap": "codeql-actions-language",
+      "sideEffects": ["ghazdo-native-publication"]
+    },
+    {
+      "source": ".github/workflows/SAST-Kubesec.yml",
+      "target": ".azuredevops/pipelines/sast-kubesec.yml",
+      "triggers": { "push": ["main"], "pullRequest": ["main"], "manual": false, "schedules": [{ "cronUtc": "18 8 * * 6", "always": true }] },
+      "scope": ["manifests/critical-double.yaml", "manifests/score-5-pod-serviceaccount.yaml"],
+      "gates": ["scanner-execution", "deterministic-conversion", "sarif-schema", "nonempty-sarif-runs"],
+      "findingGate": { "enabled": false },
+      "artifacts": ["CodeAnalysisLogs"],
+      "retentionDays": null,
+      "sideEffects": ["third-party-sarif-publication"]
+    },
+    {
+      "source": ".github/workflows/SCA-Anchore-Syft-SBOM.yml",
+      "target": ".azuredevops/pipelines/sca-anchore-syft-sbom.yml",
+      "triggers": { "push": ["main"], "pullRequest": [], "manual": false, "schedules": [] },
+      "gates": ["image-build", "sbom-generation"],
+      "findingGate": { "enabled": false, "continueOnError": true },
+      "artifacts": ["syft-sbom"],
+      "retentionDays": null,
+      "sideEffects": ["sbom-evidence-publication"]
+    },
+    {
+      "source": ".github/workflows/SCA-GitHubAdvancedSecurity-DependencyReview.yml",
+      "target": ".azuredevops/pipelines/sca-dependency-scanning.yml",
+      "triggers": { "push": [], "pullRequest": ["main"], "manual": false, "schedules": [] },
+      "gates": ["ghazdo-dependency-scan", "changed-package-comparison", "moderate-severity", "spdx-allowlist", "pull-request-summary"],
+      "licenseAllowlist": ["MIT", "Apache-2.0", "GPL-3.0"],
+      "unknownLicenseBehavior": "warn",
+      "artifacts": ["dependency-admission-json", "dependency-admission-markdown"],
+      "retentionDays": null,
+      "sideEffects": ["ghazdo-native-publication", "marker-owned-pull-request-comment"]
+    },
+    {
+      "source": ".github/workflows/SCA-Microsoft-SBOM.yml",
+      "target": ".azuredevops/pipelines/sca-microsoft-sbom.yml",
+      "triggers": { "push": ["main"], "pullRequest": [], "manual": false, "schedules": [] },
+      "runtime": { "dotnet": "9.0.x" },
+      "gates": ["release-build", "spdx-sbom-generation"],
+      "artifacts": ["microsoft-spdx-sbom"],
+      "retentionDays": null,
+      "platformGap": "github-spdx-dependency-submission",
+      "sideEffects": ["sbom-evidence-publication"]
+    },
+    {
+      "source": ".github/workflows/SCA-OpenSSF-Scorecard.yml",
+      "target": ".azuredevops/pipelines/sca-openssf-scorecard.yml",
+      "triggers": { "push": ["main"], "pullRequest": [], "manual": false, "schedules": [{ "cronUtc": "25 23 * * 3", "always": true }] },
+      "gates": ["scorecard-execution", "json-validation", "sanitized-wiki-summary"],
+      "artifacts": ["openssf-scorecard-json"],
+      "retentionDays": 30,
+      "platformGap": "public-openssf-scorecard-publication",
+      "authoritativeFormat": "json",
+      "sideEffects": ["artifact-publication", "sanitized-wiki-summary"]
+    },
+    {
+      "source": ".github/workflows/security-agent-workflow.yml",
+      "target": ".azuredevops/pipelines/security-agent.yml",
+      "triggers": { "push": [], "pullRequest": [], "manual": true, "schedules": [] },
+      "runtime": { "node": "22" },
+      "timeoutsMinutes": { "job": 15, "cli": 10 },
+      "scope": [".github/agents/security-agent.agent.md"],
+      "gates": ["pinned-cli", "bounded-tools", "structured-severity"],
+      "artifacts": ["security-agent-report"],
+      "retentionDays": 30,
+      "sideEffects": ["sanitized-wiki-summary"]
+    },
+    {
+      "source": ".github/workflows/static.yml",
+      "target": ".azuredevops/pipelines/docs-static.yml",
+      "triggers": { "push": ["main"], "pullRequest": [], "manual": true, "schedules": [] },
+      "scope": ["docs/devsecops-concepts.md", "docs/ghas-mdc-devsecops.md", "docs/GHAS-MDC-L400-Guide.md", "docs/templates/security-plan-template.md"],
+      "gates": ["wiki-staging", "content-validation", "exclusive-lock-environment"],
+      "artifacts": ["wiki-documentation"],
+      "retentionDays": null,
+      "sideEffects": ["project-wiki-publication"]
+    }
+  ],
+  "platformGaps": [
+    {
+      "id": "codeql-actions-language",
+      "ownerRole": "application-security-owner",
+      "dispositionInput": "PLATFORM_GAP_CODEQL_ACTIONS_DISPOSITION",
+      "status": "decision-required",
+      "allowedDispositions": ["accepted", "replaced", "retained", "retired"]
+    },
+    {
+      "id": "github-spdx-dependency-submission",
+      "ownerRole": "software-supply-chain-owner",
+      "dispositionInput": "PLATFORM_GAP_SPDX_SUBMISSION_DISPOSITION",
+      "status": "decision-required",
+      "allowedDispositions": ["accepted", "replaced", "retained", "retired"]
+    },
+    {
+      "id": "public-openssf-scorecard-publication",
+      "ownerRole": "open-source-program-owner",
+      "dispositionInput": "PLATFORM_GAP_SCORECARD_PUBLICATION_DISPOSITION",
+      "status": "decision-required",
+      "allowedDispositions": ["accepted", "replaced", "retained", "retired"]
+    },
+    {
+      "id": "github-organization-policy-mutation",
+      "ownerRole": "azure-devops-platform-owner",
+      "dispositionInput": "PLATFORM_GAP_ORG_POLICY_DISPOSITION",
+      "status": "decision-required",
+      "allowedDispositions": ["accepted", "replaced", "retained", "retired"]
+    }
+  ]
+}

@@ -1,0 +1,35 @@
+trigger:
+  branches:
+    include:
+      - main
+
+schedules:
+  - cron: '15 03 * * 5'
+    displayName: Friday IaC Microsoft Security DevOps scan
+    branches:
+      include:
+        - main
+    always: true
+
+pool:
+  vmImage: windows-latest
+
+steps:
+  - checkout: self
+    clean: true
+    fetchDepth: 1
+    sparseCheckoutDirectories: |
+      terraform
+      blueprints
+      manifests
+
+  - task: MicrosoftSecurityDevOps@1
+    displayName: Run IaC Microsoft Security DevOps
+    inputs:
+      categories: IaC
+      publish: true
+
+  - task: AdvancedSecurity-Publish@1
+    displayName: Publish IaC MSDO SARIF to Advanced Security
+    inputs:
+      SarifsInputDirectory: '$(Build.ArtifactStagingDirectory)/.gdn/'

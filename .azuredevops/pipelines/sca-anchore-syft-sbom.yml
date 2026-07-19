@@ -1,0 +1,72 @@
+name: sca-anchore-syft-sbom-$(Date:yyyyMMdd).$(Rev:r)
+
+trigger:
+  branches:
+    include:
+      - main
+
+pool:
+  vmImage: ubuntu-latest
+
+variables:
+  imageName: webapp01
+  sbomDirectory: $(Build.ArtifactStagingDirectory)/syft-sbom
+
+steps:
+  - checkout: self
+    clean: true
+  - pwsh: |
+      $ErrorActionPreference = 'Stop'
+      if ([string]::IsNullOrWhiteSpace($env:SYFT_IMAGE)) {
+        throw 'SYFT_IMAGE is required and must identify the reviewed Syft container repository.'
+      }
+      if ($env:SYFT_IMAGE -notmatch '^[a-z0-9][a-z0-9._/-]*$' -or $env:SYFT_IMAGE -match '(?i)(?:^|/)(latest|main|master)$') {
+        throw 'SYFT_IMAGE must be a reviewed container repository without a mutable tag.'
+      }
+      if ($env:SYFT_IMAGE_DIGEST -notmatch '^sha256:[a-fA-F0-9]{64}$') {
+        throw 'SYFT_IMAGE_DIGEST is required and must be an approved SHA-256 image digest.'
+      }
+    displayName: Require immutable Syft inputs
+    env:
+      SYFT_IMAGE: $(SYFT_IMAGE)
+      SYFT_IMAGE_DIGEST: $(SYFT_IMAGE_DIGEST)
+  - task: Docker@2
+    displayName: Build deterministic local application image
+    inputs:
+      command: build
+      repository: $(imageName)
+      Dockerfile: src/webapp01/Dockerfile
+      buildContext: src/webapp01
+      tags: $(Build.SourceVersion)
+  - pwsh: |
+      $ErrorActionPreference = 'Stop'
+      $outputDirectory = '$(sbomDirectory)'
+      New-Item -ItemType Directory -Path $outputDirectory -Force | Out-Null
+      $outputDirectory = (Resolve-Path -LiteralPath $outputDirectory).Path
+      $syftImage = "$env:SYFT_IMAGE@$env:SYFT_IMAGE_DIGEST"
+      $applicationImage = '$(imageName):$(Build.SourceVersion)'
+
+      docker image inspect $applicationImage | Out-Null
+      if ($LASTEXITCODE -ne 0) { throw 'The deterministic local application image is unavailable.' }
+      docker run --rm `
+        --volume /var/run/docker.sock:/var/run/docker.sock `
+        --volume "${outputDirectory}:/output" `
+        $syftImage `
+        "docker:$applicationImage" `
+        --output spdx-json=/output/syft-sbom.spdx.json
+      if ($LASTEXITCODE -ne 0) { throw 'Syft execution failed; report-only behavior does not suppress tool failures.' }
+
+      $document = Get-Content -LiteralPath (Join-Path $outputDirectory 'syft-sbom.spdx.json') -Raw | ConvertFrom-Json -Depth 100
+      if ($document.spdxVersion -notmatch '^SPDX-2\.' -or [string]::IsNullOrWhiteSpace([string]$document.documentNamespace)) {
+        throw 'Syft did not produce a valid SPDX JSON document.'
+      }
+      Write-Host 'Syft SBOM generated. Package findings are report-only; image build, tool execution, and JSON validation failures remain fatal.'
+    displayName: Generate and validate Syft SPDX JSON
+    env:
+      SYFT_IMAGE: $(SYFT_IMAGE)
+      SYFT_IMAGE_DIGEST: $(SYFT_IMAGE_DIGEST)
+  - task: PublishPipelineArtifact@1
+    displayName: Publish native Syft SBOM evidence
+    inputs:
+      targetPath: $(sbomDirectory)
+      artifact: syft-sbom

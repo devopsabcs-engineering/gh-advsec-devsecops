@@ -1,0 +1,50 @@
+trigger:
+  branches:
+    include:
+      - main
+
+schedules:
+  - cron: '15 03 * * 5'
+    displayName: Friday tfsec scan
+    branches:
+      include:
+        - main
+    always: true
+
+pool:
+  vmImage: ubuntu-latest
+
+variables:
+  TFSEC_SARIF: $(Build.ArtifactStagingDirectory)/sarif/tfsec.sarif
+
+steps:
+  - checkout: self
+    persistCredentials: false
+
+  - pwsh: |
+      $ErrorActionPreference = 'Stop'
+      if ($env:TFSEC_IMAGE -notmatch '^[a-z0-9][a-z0-9._/-]*$') { throw 'TFSEC_IMAGE must identify a reviewed container repository without a tag.' }
+      if ($env:TFSEC_DIGEST_OR_SHA256 -notmatch '^sha256:[a-fA-F0-9]{64}$') { throw 'TFSEC_DIGEST_OR_SHA256 must be an approved container digest.' }
+      if ([string]::IsNullOrWhiteSpace($env:TFSEC_VERSION)) { throw 'TFSEC_VERSION is required for audited tool inventory.' }
+
+      $outputDirectory = Split-Path -Parent '$(TFSEC_SARIF)'
+      New-Item -ItemType Directory -Path $outputDirectory -Force | Out-Null
+      $outputDirectory = (Resolve-Path -LiteralPath $outputDirectory).Path
+      $dockerUser = "$(id -u):$(id -g)"
+      docker run --rm `
+          --user $dockerUser `
+          --volume '$(Build.SourcesDirectory)/terraform:/scan:ro' `
+          --volume "${outputDirectory}:/results" `
+          "$env:TFSEC_IMAGE@$env:TFSEC_DIGEST_OR_SHA256" `
+          /scan --format sarif --out /results/tfsec.sarif --soft-fail
+      if ($LASTEXITCODE -ne 0) { throw "tfsec execution failed with exit code $LASTEXITCODE." }
+    displayName: Run immutable report-only tfsec scan
+    env:
+      TFSEC_IMAGE: $(TFSEC_IMAGE)
+      TFSEC_VERSION: $(TFSEC_VERSION)
+      TFSEC_DIGEST_OR_SHA256: $(TFSEC_DIGEST_OR_SHA256)
+
+  - template: templates/publish-sarif.yml
+    parameters:
+      sarifPath: $(TFSEC_SARIF)
+      reportType: third-party-sarif

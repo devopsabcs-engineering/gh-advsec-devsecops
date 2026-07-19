@@ -1,0 +1,99 @@
+name: sca-microsoft-sbom-$(Date:yyyyMMdd).$(Rev:r)
+
+trigger:
+  branches:
+    include:
+      - main
+
+pool:
+  vmImage: ubuntu-latest
+
+variables:
+  projectPath: src/webapp01/webapp01.csproj
+  buildOutput: $(Build.ArtifactStagingDirectory)/microsoft-spdx-sbom
+
+steps:
+  - checkout: self
+    clean: true
+  - pwsh: |
+      $ErrorActionPreference = 'Stop'
+      $requiredInputs = [ordered]@{
+        SBOM_TOOL_VERSION = $env:SBOM_TOOL_VERSION
+        SBOM_TOOL_DOWNLOAD_URL = $env:SBOM_TOOL_DOWNLOAD_URL
+        SBOM_TOOL_SHA256 = $env:SBOM_TOOL_SHA256
+        SBOM_SUPPLIER = $env:SBOM_SUPPLIER
+        SBOM_NAMESPACE_BASE = $env:SBOM_NAMESPACE_BASE
+        PLATFORM_GAP_SPDX_SUBMISSION_DISPOSITION = $env:PLATFORM_GAP_SPDX_SUBMISSION_DISPOSITION
+      }
+      $missing = @($requiredInputs.GetEnumerator() | Where-Object { [string]::IsNullOrWhiteSpace([string]$_.Value) } | ForEach-Object Key)
+      if ($missing.Count -gt 0) {
+        throw "Mandatory Microsoft SBOM inputs are absent: $($missing -join ', '). Supply approved pipeline variables or variable groups."
+      }
+      if ($env:SBOM_TOOL_SHA256 -notmatch '^[a-fA-F0-9]{64}$') { throw 'SBOM_TOOL_SHA256 must be a reviewed SHA-256 value.' }
+      if ($env:SBOM_NAMESPACE_BASE -notmatch '^https://[^\s]+$') { throw 'SBOM_NAMESPACE_BASE must be an approved HTTPS namespace.' }
+      if ($env:PLATFORM_GAP_SPDX_SUBMISSION_DISPOSITION -notin @('accepted', 'retained', 'retired')) {
+        throw 'PLATFORM_GAP_SPDX_SUBMISSION_DISPOSITION must be accepted, retained, or retired. This pipeline does not implement a replacement.'
+      }
+      Write-Host "GitHub dependency submission has no Azure DevOps equivalent in this pipeline. Approved disposition: $env:PLATFORM_GAP_SPDX_SUBMISSION_DISPOSITION."
+    displayName: Require SBOM inputs and dependency-submission disposition
+    env:
+      SBOM_TOOL_VERSION: $(SBOM_TOOL_VERSION)
+      SBOM_TOOL_DOWNLOAD_URL: $(SBOM_TOOL_DOWNLOAD_URL)
+      SBOM_TOOL_SHA256: $(SBOM_TOOL_SHA256)
+      SBOM_SUPPLIER: $(SBOM_SUPPLIER)
+      SBOM_NAMESPACE_BASE: $(SBOM_NAMESPACE_BASE)
+      PLATFORM_GAP_SPDX_SUBMISSION_DISPOSITION: $(PLATFORM_GAP_SPDX_SUBMISSION_DISPOSITION)
+  - task: UseDotNet@2
+    displayName: Use .NET SDK 9.0.x
+    inputs:
+      packageType: sdk
+      version: 9.0.x
+  - task: DotNetCoreCLI@2
+    displayName: Restore application
+    inputs:
+      command: restore
+      projects: $(projectPath)
+  - task: DotNetCoreCLI@2
+    displayName: Build application (Release)
+    inputs:
+      command: build
+      projects: $(projectPath)
+      arguments: --configuration Release --no-restore --output $(buildOutput)
+  - template: templates/install-pinned-tool.yml
+    parameters:
+      toolId: microsoft-sbom-tool
+      version: $(SBOM_TOOL_VERSION)
+      downloadUrl: $(SBOM_TOOL_DOWNLOAD_URL)
+      sha256: $(SBOM_TOOL_SHA256)
+      destination: $(Agent.TempDirectory)/tools/sbom-tool
+  - pwsh: |
+      $ErrorActionPreference = 'Stop'
+      $tool = '$(Agent.TempDirectory)/tools/sbom-tool'
+      & chmod +x $tool
+      if ($LASTEXITCODE -ne 0) { throw 'Unable to mark the verified Microsoft SBOM Tool executable.' }
+
+      & $tool generate `
+        -b '$(buildOutput)' `
+        -bc '$(Build.SourcesDirectory)' `
+        -pn webapp01 `
+        -pv '$(Build.SourceVersion)' `
+        -ps $env:SBOM_SUPPLIER `
+        -nsb $env:SBOM_NAMESPACE_BASE `
+        -V Information
+      if ($LASTEXITCODE -ne 0) { throw 'Microsoft SBOM Tool execution failed.' }
+
+      $manifestPath = Join-Path '$(buildOutput)' '_manifest/spdx_2.2/manifest.spdx.json'
+      $document = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json -Depth 100
+      if ($document.spdxVersion -ne 'SPDX-2.2' -or [string]::IsNullOrWhiteSpace([string]$document.documentNamespace)) {
+        throw 'Microsoft SBOM Tool did not produce valid SPDX 2.2 JSON.'
+      }
+      if (@($document.creationInfo.creators).Count -eq 0) { throw 'The SPDX creation metadata is absent.' }
+    displayName: Generate and validate Microsoft SPDX 2.2 SBOM
+    env:
+      SBOM_SUPPLIER: $(SBOM_SUPPLIER)
+      SBOM_NAMESPACE_BASE: $(SBOM_NAMESPACE_BASE)
+  - task: PublishPipelineArtifact@1
+    displayName: Publish Release build and Microsoft SPDX evidence
+    inputs:
+      targetPath: $(buildOutput)
+      artifact: microsoft-spdx-sbom

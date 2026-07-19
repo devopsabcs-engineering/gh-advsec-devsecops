@@ -1,0 +1,201 @@
+name: governance-policy-$(Date:yyyyMMdd).$(Rev:r)
+
+trigger: none
+
+schedules:
+  - cron: '0 6 * * *'
+    displayName: Daily 06:00 UTC
+    branches:
+      include:
+        - main
+    always: true
+
+parameters:
+  - name: PLATFORM_GAP_ORG_POLICY_DISPOSITION
+    type: string
+    default: decision-required
+    values:
+      - decision-required
+      - retained
+      - retired
+      - replaced
+  - name: applyApprovedReplacement
+    type: boolean
+    default: false
+
+pool:
+  vmImage: ubuntu-latest
+
+variables:
+  governanceReportPath: $(Build.ArtifactStagingDirectory)/governance-report
+
+stages:
+  - stage: Evaluate
+    jobs:
+      - job: DispositionAndDryRun
+        steps:
+          - checkout: self
+            clean: true
+          - pwsh: |
+              $ErrorActionPreference = 'Stop'
+              New-Item -ItemType Directory -Path '$(governanceReportPath)' -Force | Out-Null
+              $disposition = '${{ parameters.PLATFORM_GAP_ORG_POLICY_DISPOSITION }}'
+              $report = [ordered]@{
+                platformGap = 'github-organization-policy-mutation'
+                disposition = $disposition
+                status = if ($disposition -eq 'retired') { 'explicitly-retired' } elseif ($disposition -eq 'retained') { 'retained-in-github' } elseif ($disposition -eq 'replaced') { 'replacement-dry-run-required' } else { 'decision-required' }
+                mutationAttempted = $false
+                message = 'GitHub organization policy mutation has no silent Azure DevOps equivalent.'
+                runUrl = "$($env:SYSTEM_COLLECTIONURI)$($env:SYSTEM_TEAMPROJECT)/_build/results?buildId=$($env:BUILD_BUILDID)"
+              }
+              $report | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath '$(governanceReportPath)/disposition.json' -Encoding utf8NoBOM
+              @(
+                '# Pipeline governance disposition'
+                ''
+                "- Status: $($report.status)"
+                '- Mutation attempted: false'
+                "- Remediation summary: $($report.message)"
+                "- [Pipeline run]($($report.runUrl))"
+                "- [Authoritative governance artifact]($($report.runUrl)&view=artifacts)"
+              ) -join [Environment]::NewLine | Set-Content -LiteralPath '$(governanceReportPath)/wiki-summary.md' -Encoding utf8NoBOM
+              if ($disposition -ne 'replaced') {
+                Write-Host "Governance mutation is a no-op: $($report.status)."
+                return
+              }
+              if ([string]::IsNullOrWhiteSpace($env:GOVERNANCE_CONFIGURATION_PATH)) { throw 'An approved replacement requires GOVERNANCE_CONFIGURATION_PATH.' }
+              & './scripts/azure-devops/Initialize-PipelineGovernance.ps1' -ConfigurationPath $env:GOVERNANCE_CONFIGURATION_PATH |
+                ConvertTo-Json -Depth 100 |
+                Set-Content -LiteralPath '$(governanceReportPath)/dry-run-plan.json' -Encoding utf8NoBOM
+            displayName: Record disposition and run replacement dry-run first
+            env:
+              GOVERNANCE_CONFIGURATION_PATH: $(GOVERNANCE_CONFIGURATION_PATH)
+          - task: PublishPipelineArtifact@1
+            displayName: Publish governance dry-run report
+            condition: always()
+            inputs:
+              targetPath: $(governanceReportPath)
+              artifact: governance-report
+          - pwsh: |
+              $ErrorActionPreference = 'Stop'
+              if ([string]::IsNullOrWhiteSpace($env:PROJECT_WIKI_IDENTIFIER)) {
+                Write-Host 'Wiki summary skipped: PROJECT_WIKI_IDENTIFIER is not configured.'
+                return
+              }
+              & './scripts/azure-devops/Publish-WikiSummary.ps1' `
+                -OrganizationUrl $env:SYSTEM_COLLECTIONURI `
+                -Project $env:SYSTEM_TEAMPROJECT `
+                -WikiIdentifier $env:PROJECT_WIKI_IDENTIFIER `
+                -ReportType governance `
+                -MarkdownPath '$(governanceReportPath)/wiki-summary.md'
+            displayName: Publish sanitized governance disposition when configured
+            condition: succeededOrFailed()
+            env:
+              PROJECT_WIKI_IDENTIFIER: $(PROJECT_WIKI_IDENTIFIER)
+              SYSTEM_ACCESSTOKEN: $(System.AccessToken)
+
+  - stage: ApplyApprovedReplacement
+    dependsOn: Evaluate
+    condition: and(succeeded(), eq('${{ parameters.PLATFORM_GAP_ORG_POLICY_DISPOSITION }}', 'replaced'), eq('${{ parameters.applyApprovedReplacement }}', 'True'))
+    jobs:
+      - deployment: ApplyGovernance
+        displayName: Apply administrator-approved Azure DevOps governance
+        environment: $(GOVERNANCE_MUTATION_ENVIRONMENT)
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - checkout: self
+                  clean: true
+                - pwsh: |
+                    $ErrorActionPreference = 'Stop'
+                    $reportPath = '$(Build.ArtifactStagingDirectory)/governance-apply-report'
+                    New-Item -ItemType Directory -Path $reportPath -Force | Out-Null
+                    $runUrl = "$($env:SYSTEM_COLLECTIONURI)$($env:SYSTEM_TEAMPROJECT)/_build/results?buildId=$($env:BUILD_BUILDID)"
+                    $mutationAttempted = $false
+                    $applySucceeded = $false
+                    $verifierPassed = $false
+                    $failureStatus = $null
+                    try {
+                      if ([string]::IsNullOrWhiteSpace($env:GOVERNANCE_CONFIGURATION_PATH)) { throw 'Approved mutation configuration is absent.' }
+                      if ($env:GOVERNANCE_MUTATION_APPROVED -ne 'true') { throw 'Administrator-controlled mutation approval is absent.' }
+                      $mutationAttempted = $true
+                      & './scripts/azure-devops/Initialize-PipelineGovernance.ps1' -ConfigurationPath $env:GOVERNANCE_CONFIGURATION_PATH -Apply
+                      $applySucceeded = $true
+                    }
+                    catch {
+                      $failureStatus = if ($mutationAttempted) { 'apply-failed' } else { 'approval-precondition-failed' }
+                    }
+                    if (-not [string]::IsNullOrWhiteSpace($env:GOVERNANCE_CONFIGURATION_PATH)) {
+                      try {
+                        $rawVerifierPath = Join-Path '$(Agent.TempDirectory)' 'governance-verifier-raw.json'
+                        & './scripts/azure-devops/Test-PipelineGovernance.ps1' `
+                          -ConfigurationPath $env:GOVERNANCE_CONFIGURATION_PATH `
+                          -OutputPath $rawVerifierPath | Out-Null
+                        $rawVerifier = Get-Content -LiteralPath $rawVerifierPath -Raw | ConvertFrom-Json -Depth 100
+                        $verifierPassed = $true
+                        [ordered]@{
+                          passed = $true
+                          verifiedAtUtc = $rawVerifier.verifiedAtUtc
+                          findingCount = @($rawVerifier.findings).Count
+                        } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $reportPath 'verifier-result.json') -Encoding utf8NoBOM
+                      }
+                      catch {
+                        [ordered]@{
+                          passed = $false
+                          verifiedAtUtc = [DateTime]::UtcNow.ToString('o')
+                          findingCount = $null
+                        } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $reportPath 'verifier-result.json') -Encoding utf8NoBOM
+                        if ($null -eq $failureStatus) { $failureStatus = 'post-apply-verification-failed' }
+                      }
+                      finally {
+                        if ($rawVerifierPath) { Remove-Item -LiteralPath $rawVerifierPath -Force -ErrorAction SilentlyContinue }
+                      }
+                    }
+                    else {
+                      @{ passed = $false; status = 'configuration-absent' } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $reportPath 'verifier-result.json') -Encoding utf8NoBOM
+                    }
+                    $status = if ($applySucceeded -and $verifierPassed) { 'applied-and-verified' } elseif ($failureStatus) { $failureStatus } else { 'verification-failed' }
+                    [ordered]@{
+                      status = $status
+                      mutationAttempted = $mutationAttempted
+                      runUrl = $runUrl
+                      verifier = [ordered]@{ passed = $verifierPassed; resultFile = 'verifier-result.json' }
+                    } | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $reportPath 'post-apply-evidence.json') -Encoding utf8NoBOM
+                    @(
+                      '# Pipeline governance apply result'
+                      ''
+                      "- Status: $status"
+                      "- Mutation attempted: $($mutationAttempted.ToString().ToLowerInvariant())"
+                      "- Verifier passed: $($verifierPassed.ToString().ToLowerInvariant())"
+                      '- Remediation summary: Review the authoritative apply artifact when status is not applied-and-verified.'
+                      "- [Pipeline run]($runUrl)"
+                      "- [Authoritative governance apply artifact]($runUrl&view=artifacts)"
+                    ) -join [Environment]::NewLine | Set-Content -LiteralPath (Join-Path $reportPath 'wiki-summary.md') -Encoding utf8NoBOM
+                    if (-not $applySucceeded -or -not $verifierPassed) { throw "Governance replacement did not complete successfully: $status." }
+                  displayName: Apply approved replacement and verify resulting governance
+                  env:
+                    GOVERNANCE_CONFIGURATION_PATH: $(GOVERNANCE_CONFIGURATION_PATH)
+                    GOVERNANCE_MUTATION_APPROVED: $(GOVERNANCE_MUTATION_APPROVED)
+                - task: PublishPipelineArtifact@1
+                  displayName: Publish governance post-apply report
+                  condition: always()
+                  inputs:
+                    targetPath: $(Build.ArtifactStagingDirectory)/governance-apply-report
+                    artifact: governance-apply-report
+                - pwsh: |
+                    $ErrorActionPreference = 'Stop'
+                    if ([string]::IsNullOrWhiteSpace($env:PROJECT_WIKI_IDENTIFIER)) {
+                      Write-Host 'Wiki summary skipped: PROJECT_WIKI_IDENTIFIER is not configured.'
+                      return
+                    }
+                    & './scripts/azure-devops/Publish-WikiSummary.ps1' `
+                      -OrganizationUrl $env:SYSTEM_COLLECTIONURI `
+                      -Project $env:SYSTEM_TEAMPROJECT `
+                      -WikiIdentifier $env:PROJECT_WIKI_IDENTIFIER `
+                      -ReportType governance `
+                      -MarkdownPath '$(Build.ArtifactStagingDirectory)/governance-apply-report/wiki-summary.md'
+                  displayName: Publish sanitized post-apply governance summary when configured
+                  condition: always()
+                  env:
+                    PROJECT_WIKI_IDENTIFIER: $(PROJECT_WIKI_IDENTIFIER)
+                    SYSTEM_ACCESSTOKEN: $(System.AccessToken)

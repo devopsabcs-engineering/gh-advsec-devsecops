@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "routes": [
+    { "reportType": "ghazdo-codeql", "authoritativeFormat": "native", "destination": "repos-advanced-security-code-scanning", "artifact": null, "wikiFallback": false },
+    { "reportType": "ghazdo-dependencies", "authoritativeFormat": "native", "destination": "repos-advanced-security-dependencies", "artifact": null, "wikiFallback": false },
+    { "reportType": "third-party-sarif", "authoritativeFormat": "sarif-2.1.0", "destination": "sarif-scans-tab", "artifact": "CodeAnalysisLogs", "destinations": [{ "name": "sarif-scans-tab", "artifact": "CodeAnalysisLogs" }, { "name": "repos-advanced-security-code-scanning", "task": "AdvancedSecurity-Publish@1" }], "wikiFallback": false },
+    { "reportType": "msdo-sarif", "authoritativeFormat": "sarif-2.1.0", "destination": "sarif-scans-tab", "artifact": "CodeAnalysisLogs", "destinations": [{ "name": "sarif-scans-tab", "artifact": "CodeAnalysisLogs" }, { "name": "repos-advanced-security-code-scanning", "task": "AdvancedSecurity-Publish@1" }], "wikiFallback": false },
+    { "reportType": "openssf-scorecard", "authoritativeFormat": "json", "destination": "pipeline-artifact", "artifact": "openssf-scorecard-json", "wikiFallback": true, "wikiPath": "Security/OpenSSF-Scorecard" },
+    { "reportType": "security-agent", "authoritativeFormat": "markdown-and-json", "destination": "pipeline-artifact", "artifact": "security-agent-report", "wikiFallback": true, "wikiPath": "Security/Security-Agent" },
+    { "reportType": "governance", "authoritativeFormat": "json", "destination": "pipeline-artifact", "artifact": "governance-report", "supplementaryArtifacts": ["governance-apply-report"], "wikiFallback": true, "wikiPath": "Governance/Pipeline-Controls" },
+    { "reportType": "workflow-parity", "authoritativeFormat": "json", "destination": "pipeline-artifact", "artifact": "workflow-parity-report", "wikiFallback": true, "wikiPath": "Governance/Workflow-Parity" },
+    { "reportType": "spdx-sbom", "authoritativeFormat": "spdx-json", "destination": "pipeline-artifact-and-oci-referrer", "artifact": "sbom-evidence", "wikiFallback": false },
+    { "reportType": "signed-provenance", "authoritativeFormat": "in-toto-slsa-v1", "destination": "oci-referrer-and-pipeline-artifact", "artifact": "signed-image-evidence", "wikiFallback": false },
+    { "reportType": "zap-html-json", "authoritativeFormat": "html-and-json", "destination": "pipeline-artifact", "artifact": "zap-reports", "wikiFallback": false },
+    { "reportType": "application-deployment", "authoritativeFormat": "deployment-record", "destination": "azure-devops-environment", "artifact": "signed-image-evidence", "wikiFallback": false },
+    { "reportType": "documentation-deployment", "authoritativeFormat": "markdown", "destination": "project-wiki", "artifact": "wiki-documentation", "wikiFallback": true, "wikiPath": "Documentation" }
+  ],
+  "sanitization": {
+    "wikiAllowedContent": ["aggregate-counts", "status", "run-link", "artifact-link", "approved-remediation-summary"],
+    "wikiForbiddenContent": ["access-tokens", "credentials", "request-headers", "target-secrets", "raw-sensitive-payloads"]
+  }
+}

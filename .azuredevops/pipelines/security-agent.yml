@@ -1,0 +1,237 @@
+name: security-agent-$(Date:yyyyMMdd).$(Rev:r)
+
+trigger: none
+
+resources:
+  repositories:
+    - repository: projectWiki
+      type: git
+      name: DevSecOps.wiki
+      ref: refs/heads/wikiMaster
+
+pool:
+  vmImage: ubuntu-latest
+
+variables:
+  reportDirectory: $(Build.ArtifactStagingDirectory)/security-agent-report
+
+jobs:
+  - job: SecurityAssessment
+    timeoutInMinutes: 15
+    steps:
+      - checkout: self
+        clean: true
+        persistCredentials: false
+        path: source
+      - checkout: projectWiki
+        clean: true
+        persistCredentials: false
+        fetchDepth: 1
+        path: project-wiki
+
+      - pwsh: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Path '$(reportDirectory)' -Force | Out-Null
+          [ordered]@{
+            status = 'precondition-validation-pending'
+            assessmentExecuted = $false
+            sourceRevision = '$(Build.SourceVersion)'
+          } | ConvertTo-Json | Set-Content -LiteralPath '$(reportDirectory)/run-status.json' -Encoding utf8NoBOM
+        displayName: Initialize fail-closed security-agent evidence
+
+      - task: NodeTool@0
+        displayName: Use Node.js 22
+        inputs:
+          versionSpec: '22.x'
+
+      - pwsh: |
+          $ErrorActionPreference = 'Stop'
+          $required = [ordered]@{
+            COPILOT_CLI_VERSION = $env:COPILOT_CLI_VERSION
+            COPILOT_CLI_INTEGRITY = $env:COPILOT_CLI_INTEGRITY
+            COPILOT_GITHUB_TOKEN = $env:COPILOT_GITHUB_TOKEN
+          }
+          $missing = @($required.GetEnumerator() | Where-Object { [string]::IsNullOrWhiteSpace([string]$_.Value) } | ForEach-Object Key)
+          if ($missing.Count -gt 0) { throw "Mandatory security-agent inputs are absent: $($missing -join ', ')." }
+          if ($env:COPILOT_CLI_VERSION -notmatch '^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$') { throw 'COPILOT_CLI_VERSION must be an exact version.' }
+          if ($env:COPILOT_CLI_INTEGRITY -notmatch '^sha512-[A-Za-z0-9+/]+={0,2}$') { throw 'COPILOT_CLI_INTEGRITY must be an approved npm SHA-512 integrity value.' }
+          if (-not (Test-Path '.github/agents/security-agent.agent.md' -PathType Leaf)) { throw 'Corrected security agent file is absent.' }
+          [ordered]@{
+            status = 'preconditions-satisfied'
+            assessmentExecuted = $false
+            sourceRevision = '$(Build.SourceVersion)'
+          } | ConvertTo-Json | Set-Content -LiteralPath '$(reportDirectory)/run-status.json' -Encoding utf8NoBOM
+        displayName: Require approved CLI integrity and secret token
+        workingDirectory: $(Pipeline.Workspace)/source
+        env:
+          COPILOT_CLI_VERSION: $(COPILOT_CLI_VERSION)
+          COPILOT_CLI_INTEGRITY: $(COPILOT_CLI_INTEGRITY)
+          COPILOT_GITHUB_TOKEN: $(COPILOT_GITHUB_TOKEN)
+
+      - bash: |
+          set -euo pipefail
+          work="$(Agent.TempDirectory)/copilot-cli"
+          mkdir -p "$work"
+          package_json=$(npm pack "@github/copilot@${COPILOT_CLI_VERSION}" --json --pack-destination "$work")
+          actual_integrity=$(node -e 'const value=JSON.parse(process.argv[1]); process.stdout.write(value[0].integrity)' "$package_json")
+          test "$actual_integrity" = "$COPILOT_CLI_INTEGRITY"
+          package_file=$(node -e 'const value=JSON.parse(process.argv[1]); process.stdout.write(value[0].filename)' "$package_json")
+          npm install --global "$work/$package_file"
+        displayName: Install integrity-verified Copilot CLI
+        env:
+          COPILOT_CLI_VERSION: $(COPILOT_CLI_VERSION)
+          COPILOT_CLI_INTEGRITY: $(COPILOT_CLI_INTEGRITY)
+
+      - bash: |
+          set -euo pipefail
+          mkdir -p "$(reportDirectory)"
+          prompt_file="$(Agent.TempDirectory)/security-agent-prompt.md"
+          raw_report="$(Agent.TempDirectory)/security-agent-output.json"
+          cli_errors="$(Agent.TempDirectory)/security-agent-errors.log"
+          cp .github/agents/security-agent.agent.md "$prompt_file"
+          cat >> "$prompt_file" <<'EOF'
+
+          The following pipeline requirements replace the Delegation Map, Assessment Workflow, Output Format, Produce Output, and Invocation requirements above. Analyze only files beneath the checked-out repository. Perform the assessment directly; do not delegate or invoke agents. Use read and search tools only; do not edit files, invoke external services, execute repository code, or write report files. Prioritize exploitable findings and return at most 20 findings. Emit exactly one JSON object to stdout with no Markdown fences or other text. The object must contain only severityCounts and findings. severityCounts must contain integer CRITICAL, HIGH, MEDIUM, and LOW fields. findings must be an array of objects containing only severity, title, description, remediation, location, cwe, and compliance, all as non-empty strings. severity must be CRITICAL, HIGH, MEDIUM, or LOW.
+          EOF
+          set +e
+          timeout 600 copilot --prompt "$(cat "$prompt_file")" --silent --stream off --output-format json --disable-builtin-mcps --no-custom-instructions --no-auto-update --allow-tool read --allow-tool search </dev/null >"$raw_report" 2>"$cli_errors"
+          cli_exit=$?
+          set -e
+          if [ "$cli_exit" -eq 124 ]; then
+            echo 'Copilot CLI exceeded the 10-minute execution limit.' >&2
+            exit 124
+          fi
+          test "$cli_exit" -eq 0
+          test -s "$raw_report"
+        displayName: Run bounded read-only security assessment
+        timeoutInMinutes: 11
+        workingDirectory: $(Pipeline.Workspace)/source
+        env:
+          GH_TOKEN: $(COPILOT_GITHUB_TOKEN)
+
+      - pwsh: |
+          $ErrorActionPreference = 'Stop'
+          $rawPath = '$(Agent.TempDirectory)/security-agent-output.json'
+          try { $events = @(Get-Content -LiteralPath $rawPath | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | ForEach-Object { $_ | ConvertFrom-Json -Depth 100 -ErrorAction Stop }) } catch { throw 'Security agent stdout must contain valid Copilot CLI JSONL events.' }
+          $messages = @($events | Where-Object { $_.type -eq 'assistant.message' })
+          $turnEnds = @($events | Where-Object { $_.type -eq 'assistant.turn_end' })
+          if ($messages.Count -eq 0 -or $turnEnds.Count -eq 0) { throw 'Security agent JSONL lacks a completed assistant response.' }
+          $terminalMessage = $messages[-1]
+          if (@($terminalMessage.data.toolRequests).Count -gt 0 -or [string]::IsNullOrWhiteSpace([string]$terminalMessage.data.content)) { throw 'Security agent terminal response is incomplete.' }
+          $rawOutput = [string]$terminalMessage.data.content
+          try {
+            $report = $rawOutput | ConvertFrom-Json -Depth 100 -ErrorAction Stop
+          } catch {
+            $jsonObjects = @()
+            $depth = 0
+            $start = -1
+            $inString = $false
+            $escaped = $false
+            for ($index = 0; $index -lt $rawOutput.Length; $index++) {
+              $character = $rawOutput[$index]
+              if ($inString) {
+                if ($escaped) { $escaped = $false; continue }
+                if ($character -eq '\') { $escaped = $true; continue }
+                if ($character -eq '"') { $inString = $false }
+                continue
+              }
+              if ($character -eq '"' -and $depth -gt 0) { $inString = $true; continue }
+              if ($character -eq '{') {
+                if ($depth -eq 0) { $start = $index }
+                $depth++
+              } elseif ($character -eq '}' -and $depth -gt 0) {
+                $depth--
+                if ($depth -eq 0) {
+                  $candidate = $rawOutput.Substring($start, $index - $start + 1)
+                  try { $jsonObjects += ,($candidate | ConvertFrom-Json -Depth 100 -ErrorAction Stop) } catch {}
+                }
+              }
+            }
+            if ($jsonObjects.Count -ne 1) { throw 'Security agent response must contain one unambiguous JSON object.' }
+            $report = $jsonObjects[0]
+          }
+          if ($report -is [array] -or $null -eq $report.PSObject.Properties['severityCounts'] -or $null -eq $report.PSObject.Properties['findings']) {
+            throw 'Security agent JSON must be an object containing severityCounts and findings.'
+          }
+          $topLevelProperties = @($report.PSObject.Properties.Name)
+          if (@($topLevelProperties | Where-Object { $_ -notin @('severityCounts', 'findings') }).Count -gt 0) { throw 'Security agent JSON contains unapproved top-level fields.' }
+          foreach ($severity in @('CRITICAL', 'HIGH', 'MEDIUM', 'LOW')) {
+            $value = $report.severityCounts.$severity
+            if ($value -isnot [long] -and $value -isnot [int]) { throw "Security agent JSON lacks an integer $severity count." }
+            if ([long]$value -lt 0) { throw "Security agent JSON has a negative $severity count." }
+          }
+          if (@($report.severityCounts.PSObject.Properties.Name | Where-Object { $_ -notin @('CRITICAL', 'HIGH', 'MEDIUM', 'LOW') }).Count -gt 0) { throw 'Security agent severityCounts contains unapproved fields.' }
+          $findingRows = @()
+          $approvedFindingFields = @('severity', 'title', 'description', 'remediation', 'location', 'cwe', 'compliance')
+          foreach ($finding in @($report.findings)) {
+            if (@($finding.PSObject.Properties.Name | Where-Object { $_ -notin $approvedFindingFields }).Count -gt 0) { throw 'Security agent finding contains unapproved fields.' }
+            foreach ($field in $approvedFindingFields) {
+              if ([string]::IsNullOrWhiteSpace([string]$finding.$field)) { throw "Security agent finding lacks $field." }
+            }
+            if ($finding.severity -notin @('CRITICAL', 'HIGH', 'MEDIUM', 'LOW')) { throw 'Security agent finding has an invalid severity.' }
+            $safeValues = @($finding.severity, $finding.title, $finding.location, $finding.cwe, $finding.description, $finding.remediation, $finding.compliance) | ForEach-Object { ([string]$_ -replace '[|\r\n]+', ' ').Trim() }
+            $findingRows += "| $($safeValues[0]) | $($safeValues[1]) | $($safeValues[2]) | $($safeValues[3]) | $($safeValues[4]) | $($safeValues[5]) | $($safeValues[6]) |"
+          }
+          $counts = [ordered]@{}
+          foreach ($severity in @('CRITICAL', 'HIGH', 'MEDIUM', 'LOW')) {
+            $counts[$severity] = @($report.findings | Where-Object { $_.severity -eq $severity }).Count
+          }
+          $trustedReport = [ordered]@{ severityCounts = $counts; findings = @($report.findings) }
+          $trustedReport | ConvertTo-Json -Depth 100 | Set-Content -LiteralPath '$(reportDirectory)/security-assessment-report.json' -Encoding utf8NoBOM
+          [ordered]@{
+            status = 'assessment-completed'
+            assessmentExecuted = $true
+            sourceRevision = '$(Build.SourceVersion)'
+          } | ConvertTo-Json | Set-Content -LiteralPath '$(reportDirectory)/run-status.json' -Encoding utf8NoBOM
+          @(
+            '# Security Assessment Report'
+            ''
+            '| Severity | Title | Location | CWE | Description | Remediation | Compliance |'
+            '| --- | --- | --- | --- | --- | --- | --- |'
+            $findingRows
+          ) -join [Environment]::NewLine | Set-Content -LiteralPath '$(reportDirectory)/security-assessment-report.md' -Encoding utf8NoBOM
+          $summary = @(
+            '# Security Agent Summary'
+            ''
+            "- Status: completed"
+            "- Critical: $($counts.CRITICAL)"
+            "- High: $($counts.HIGH)"
+            "- Medium: $($counts.MEDIUM)"
+            "- Low: $($counts.LOW)"
+            "- [Authoritative pipeline artifact]($($env:SYSTEM_COLLECTIONURI)$($env:SYSTEM_TEAMPROJECT)/_build/results?buildId=$($env:BUILD_BUILDID)&view=artifacts)"
+          ) -join [Environment]::NewLine
+          $summary | Set-Content -LiteralPath '$(reportDirectory)/wiki-summary.md' -Encoding utf8NoBOM
+          if ($counts.CRITICAL -gt 0) {
+            Write-Host "##vso[task.logissue type=warning]Security assessment reported $($counts.CRITICAL) critical finding(s). Review the published security-agent-report artifact."
+          }
+        displayName: Validate stdout schema and generate trusted reports
+
+      - task: PublishPipelineArtifact@1
+        displayName: Publish security agent report
+        condition: always()
+        inputs:
+          targetPath: $(reportDirectory)
+          artifact: security-agent-report
+
+      - pwsh: |
+          $ErrorActionPreference = 'Stop'
+          if ([string]::IsNullOrWhiteSpace($env:PROJECT_WIKI_IDENTIFIER)) {
+            Write-Host 'Wiki summary skipped: PROJECT_WIKI_IDENTIFIER is not configured.'
+            return
+          }
+          if (-not (Test-Path -LiteralPath '$(reportDirectory)/wiki-summary.md' -PathType Leaf)) {
+            Write-Host 'Wiki summary skipped: no trusted security-agent summary was produced.'
+            return
+          }
+          & '$(Pipeline.Workspace)/source/scripts/azure-devops/Publish-WikiSummary.ps1' `
+            -OrganizationUrl $env:SYSTEM_COLLECTIONURI `
+            -Project $env:SYSTEM_TEAMPROJECT `
+            -WikiIdentifier $env:PROJECT_WIKI_IDENTIFIER `
+            -ReportType security-agent `
+            -RoutingPath '$(Pipeline.Workspace)/source/.azuredevops/pipelines/config/visualization-routing.json' `
+            -MarkdownPath '$(reportDirectory)/wiki-summary.md'
+        displayName: Publish sanitized wiki summary when configured
+        condition: succeededOrFailed()
+        env:
+          PROJECT_WIKI_IDENTIFIER: $(PROJECT_WIKI_IDENTIFIER)
+          SYSTEM_ACCESSTOKEN: $(System.AccessToken)

@@ -1,0 +1,55 @@
+{
+  "organizationUrl": "https://dev.azure.com/MngEnvMCAP675646",
+  "project": "DevSecOps",
+  "repositoryId": null,
+  "sourceBranch": "main",
+  "pipelineDefinitions": {
+    ".azuredevops/pipelines/ci.yml": null,
+    ".azuredevops/pipelines/cicd.yml": null,
+    ".azuredevops/pipelines/cis-anchore-grype.yml": null,
+    ".azuredevops/pipelines/cis-trivy.yml": null,
+    ".azuredevops/pipelines/dast-zap.yml": null,
+    ".azuredevops/pipelines/enforce-ghas-policy.yml": null,
+    ".azuredevops/pipelines/iacs-aquasecurity-tfsec.yml": null,
+    ".azuredevops/pipelines/iacs-checkmarx-kics.yml": null,
+    ".azuredevops/pipelines/iacs-microsoft-security-devops.yml": null,
+    ".azuredevops/pipelines/msdo-security-devops.yml": null,
+    ".azuredevops/pipelines/sast-eslint.yml": null,
+    ".azuredevops/pipelines/sast-codeql.yml": null,
+    ".azuredevops/pipelines/sast-kubesec.yml": null,
+    ".azuredevops/pipelines/sca-anchore-syft-sbom.yml": null,
+    ".azuredevops/pipelines/sca-dependency-scanning.yml": null,
+    ".azuredevops/pipelines/sca-microsoft-sbom.yml": null,
+    ".azuredevops/pipelines/sca-openssf-scorecard.yml": null,
+    ".azuredevops/pipelines/security-agent.yml": null,
+    ".azuredevops/pipelines/docs-static.yml": null
+  },
+  "retention": {
+    "runDays": 30,
+    "pullRequestRunDays": 30,
+    "deploymentEvidenceLeaseDays": null
+  },
+  "documentationEnvironment": {
+    "id": null,
+    "name": null,
+    "pipelineIds": [],
+    "exclusiveLockCheckTypeId": null,
+    "timeoutMinutes": 43200
+  },
+  "applicationEnvironment": {
+    "id": null,
+    "name": null,
+    "pipelineIds": []
+  },
+  "serviceConnections": [],
+  "variableGroups": [],
+  "permissionUpdates": [],
+  "authorizedZapTargets": [],
+  "administratorBypassDescriptors": [],
+  "platformGapDispositions": {
+    "codeql-actions-language": "decision-required",
+    "github-spdx-dependency-submission": "decision-required",
+    "public-openssf-scorecard-publication": "decision-required",
+    "github-organization-policy-mutation": "decision-required"
+  }
+}

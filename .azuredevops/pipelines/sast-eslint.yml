@@ -1,0 +1,87 @@
+trigger:
+  branches:
+    include:
+      - main
+
+schedules:
+  - cron: '39 9 * * 4'
+    displayName: Thursday ESLint scan
+    branches:
+      include:
+        - main
+    always: true
+
+pool:
+  vmImage: ubuntu-latest
+
+variables:
+  ESLINT_VERSION: 8.10.0
+  ESLINT_SARIF_FORMATTER_VERSION: 3.1.0
+  SARIF_DIRECTORY: $(Build.ArtifactStagingDirectory)/sarif
+  SARIF_PATH: $(Build.ArtifactStagingDirectory)/sarif/eslint.sarif
+
+steps:
+  - checkout: self
+    persistCredentials: false
+
+  - task: NodeTool@0
+    displayName: Use Node.js 22
+    inputs:
+      versionSpec: '22.x'
+
+  - pwsh: |
+      $ErrorActionPreference = 'Stop'
+      foreach ($name in @('ESLINT_8_10_0_INTEGRITY', 'ESLINT_SARIF_FORMATTER_3_1_0_INTEGRITY')) {
+          $value = [Environment]::GetEnvironmentVariable($name)
+          if ($value -notmatch '^sha512-[A-Za-z0-9+/]+={0,2}$') {
+              throw "$name must contain a reviewed npm SHA-512 integrity value."
+          }
+      }
+
+      $workDirectory = Join-Path '$(Agent.TempDirectory)' 'eslint-tools'
+      New-Item -ItemType Directory -Path $workDirectory -Force | Out-Null
+      Push-Location $workDirectory
+      try {
+          npm init --yes | Out-Null
+          npm install --package-lock-only --ignore-scripts --save-exact "eslint@$(ESLINT_VERSION)" "@microsoft/eslint-formatter-sarif@$(ESLINT_SARIF_FORMATTER_VERSION)"
+          if ($LASTEXITCODE -ne 0) { throw 'npm failed to resolve the pinned ESLint tool set.' }
+
+          $lock = Get-Content -LiteralPath 'package-lock.json' -Raw | ConvertFrom-Json -AsHashtable -Depth 100
+          $actualEslintIntegrity = $lock.packages['node_modules/eslint'].integrity
+          $actualFormatterIntegrity = $lock.packages['node_modules/@microsoft/eslint-formatter-sarif'].integrity
+          if ($actualEslintIntegrity -cne $env:ESLINT_8_10_0_INTEGRITY) { throw 'ESLint integrity verification failed.' }
+          if ($actualFormatterIntegrity -cne $env:ESLINT_SARIF_FORMATTER_3_1_0_INTEGRITY) { throw 'ESLint SARIF formatter integrity verification failed.' }
+
+          npm ci --ignore-scripts
+          if ($LASTEXITCODE -ne 0) { throw 'npm failed to install the integrity-verified ESLint tool set.' }
+      }
+      finally {
+          Pop-Location
+      }
+
+      New-Item -ItemType Directory -Path '$(SARIF_DIRECTORY)' -Force | Out-Null
+      $eslint = Join-Path $workDirectory 'node_modules/.bin/eslint'
+      $sarifFormatter = Join-Path $workDirectory 'node_modules/@microsoft/eslint-formatter-sarif/sarif.js'
+      if (-not (Test-Path -LiteralPath $sarifFormatter -PathType Leaf)) {
+          throw 'The integrity-verified ESLint SARIF formatter entry point is unavailable.'
+      }
+      & $eslint '$(Build.SourcesDirectory)/src/webapp01' `
+          --config '$(Build.SourcesDirectory)/src/webapp01/.eslintrc.js' `
+          --ext '.js,.jsx,.ts,.tsx' `
+          --format $sarifFormatter `
+          --output-file '$(SARIF_PATH)'
+      $scanExitCode = $LASTEXITCODE
+      if ($scanExitCode -notin @(0, 1)) {
+          throw "ESLint execution failed with exit code $scanExitCode."
+      }
+      exit 0
+    displayName: Run integrity-verified ESLint scan
+    env:
+      ESLINT_8_10_0_INTEGRITY: $(ESLINT_8_10_0_INTEGRITY)
+      ESLINT_SARIF_FORMATTER_3_1_0_INTEGRITY: $(ESLINT_SARIF_FORMATTER_3_1_0_INTEGRITY)
+      SARIF_ESLINT_IGNORE_SUPPRESSED: 'true'
+
+  - template: templates/publish-sarif.yml
+    parameters:
+      sarifPath: $(SARIF_PATH)
+      reportType: third-party-sarif

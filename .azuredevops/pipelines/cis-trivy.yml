@@ -1,0 +1,62 @@
+trigger:
+  branches:
+    include:
+      - main
+
+schedules:
+  - cron: '0 1 * * 0'
+    displayName: Sunday Trivy scan
+    branches:
+      include:
+        - main
+    always: true
+
+pool:
+  vmImage: ubuntu-latest
+
+variables:
+  IMAGE_NAME: webapp01
+  TRIVY_SARIF: $(Build.ArtifactStagingDirectory)/sarif/trivy.sarif
+
+steps:
+  - checkout: self
+    persistCredentials: false
+
+  - task: Docker@2
+    displayName: Build deterministic local application image
+    inputs:
+      command: build
+      repository: $(IMAGE_NAME)
+      Dockerfile: src/webapp01/Dockerfile
+      buildContext: src/webapp01
+      tags: $(Build.SourceVersion)
+
+  - pwsh: |
+      $ErrorActionPreference = 'Stop'
+      if ($env:TRIVY_IMAGE -notmatch '^[a-z0-9][a-z0-9._/-]*$') { throw 'TRIVY_IMAGE must identify a reviewed container repository without a tag.' }
+      if ($env:TRIVY_DIGEST_OR_SHA256 -notmatch '^sha256:[a-fA-F0-9]{64}$') { throw 'TRIVY_DIGEST_OR_SHA256 must be an approved container digest.' }
+      if ([string]::IsNullOrWhiteSpace($env:TRIVY_VERSION)) { throw 'TRIVY_VERSION is required for audited tool inventory.' }
+
+      $outputDirectory = Split-Path -Parent '$(TRIVY_SARIF)'
+      New-Item -ItemType Directory -Path $outputDirectory -Force | Out-Null
+      $outputDirectory = (Resolve-Path -LiteralPath $outputDirectory).Path
+      $applicationImage = '$(IMAGE_NAME):$(Build.SourceVersion)'
+      docker image inspect $applicationImage | Out-Null
+      if ($LASTEXITCODE -ne 0) { throw 'The deterministic local application image is unavailable.' }
+      docker run --rm `
+          --volume /var/run/docker.sock:/var/run/docker.sock `
+          --volume "${outputDirectory}:/results" `
+          "$env:TRIVY_IMAGE@$env:TRIVY_DIGEST_OR_SHA256" `
+          image --format sarif --output /results/trivy.sarif $applicationImage
+      if ($LASTEXITCODE -ne 0) { throw "Trivy execution failed with exit code $LASTEXITCODE." }
+      Write-Host 'Trivy findings are report-only with no added severity gate; scanner and report failures remain fatal.'
+    displayName: Run immutable report-only Trivy scan
+    env:
+      TRIVY_IMAGE: $(TRIVY_IMAGE)
+      TRIVY_VERSION: $(TRIVY_VERSION)
+      TRIVY_DIGEST_OR_SHA256: $(TRIVY_DIGEST_OR_SHA256)
+
+  - template: templates/publish-sarif.yml
+    parameters:
+      sarifPath: $(TRIVY_SARIF)
+      reportType: third-party-sarif

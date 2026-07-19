@@ -1,0 +1,42 @@
+trigger:
+  branches:
+    include:
+      - main
+
+schedules:
+  - cron: '26 8 * * 2'
+    displayName: Tuesday CodeQL analysis
+    branches:
+      include:
+        - main
+    always: true
+
+pool:
+  vmImage: ubuntu-latest
+
+jobs:
+  - job: Analyze
+    displayName: Analyze CodeQL
+    strategy:
+      matrix:
+        CSharp:
+          codeqlLanguage: csharp
+        Python:
+          codeqlLanguage: python
+        JavaScriptTypeScript:
+          codeqlLanguage: javascript
+      maxParallel: 3
+    steps:
+      - checkout: self
+        clean: true
+
+      - task: AdvancedSecurity-Codeql-Init@1
+        displayName: Initialize CodeQL for $(codeqlLanguage)
+        inputs:
+          languages: $(codeqlLanguage)
+          querysuite: security-and-quality
+          buildtype: none
+
+      - task: AdvancedSecurity-Codeql-Analyze@1
+        displayName: Analyze $(codeqlLanguage)
+

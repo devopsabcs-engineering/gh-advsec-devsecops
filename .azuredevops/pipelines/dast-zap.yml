@@ -1,0 +1,104 @@
+name: dast-zap-$(Date:yyyyMMdd).$(Rev:r)
+
+trigger:
+  branches:
+    include:
+      - main
+
+schedules:
+  - cron: '0 1 * * 0'
+    displayName: Sunday 01:00 UTC
+    branches:
+      include:
+        - main
+    always: true
+
+parameters:
+  - name: target
+    type: string
+    default: http://127.0.0.1:8080
+  - name: buildAndStart
+    type: boolean
+    default: true
+  - name: hostPort
+    type: number
+    default: 8080
+
+pool:
+  vmImage: ubuntu-latest
+
+variables:
+  zapResultsPath: $(Build.ArtifactStagingDirectory)/zap-reports
+  zapSarifPath: $(Build.ArtifactStagingDirectory)/zap-sarif
+
+steps:
+  - checkout: self
+    clean: true
+
+  - pwsh: |
+      $ErrorActionPreference = 'Stop'
+      New-Item -ItemType Directory -Path '$(zapResultsPath)' -Force | Out-Null
+      [ordered]@{
+        status = 'precondition-validation-pending'
+        mutationAttempted = $false
+        sourceRevision = '$(Build.SourceVersion)'
+      } | ConvertTo-Json | Set-Content -LiteralPath '$(zapResultsPath)/run-status.json' -Encoding utf8NoBOM
+    displayName: Initialize fail-closed DAST evidence
+
+  - pwsh: |
+      $ErrorActionPreference = 'Stop'
+      if ([string]::IsNullOrWhiteSpace($env:ZAP_IMAGE) -or $env:ZAP_IMAGE -notmatch '@sha256:[a-fA-F0-9]{64}$') {
+        throw 'ZAP_IMAGE must be an approved digest-qualified image.'
+      }
+      if ('${{ parameters.buildAndStart }}' -ne 'True' -and [string]::IsNullOrWhiteSpace($env:ZAP_AUTHORIZATION_RECORD)) {
+        throw 'ZAP_AUTHORIZATION_RECORD is required before any remote full scan.'
+      }
+      [ordered]@{
+        status = 'preconditions-satisfied'
+        mutationAttempted = $false
+        sourceRevision = '$(Build.SourceVersion)'
+      } | ConvertTo-Json | Set-Content -LiteralPath '$(zapResultsPath)/run-status.json' -Encoding utf8NoBOM
+    displayName: Require image integrity and active-scan authorization
+    env:
+      ZAP_IMAGE: $(ZAP_IMAGE)
+      ZAP_AUTHORIZATION_RECORD: $(ZAP_AUTHORIZATION_RECORD)
+
+  - pwsh: |
+      $ErrorActionPreference = 'Stop'
+      $results = '$(zapResultsPath)'
+      New-Item -ItemType Directory -Path $results -Force | Out-Null
+      Copy-Item '.zap/baseline-plan.yaml', '.zap/full-plan.yaml' -Destination $results
+      $parameters = @{
+        ZapImage = '$(ZAP_IMAGE)'
+        ResultsPath = $results
+        Target = '${{ parameters.target }}'
+        DockerfilePath = 'src/webapp01/Dockerfile'
+        HostPort = ${{ parameters.hostPort }}
+        ReadinessAttempts = 30
+      }
+      if ('${{ parameters.buildAndStart }}' -eq 'True') { $parameters.BuildAndStart = $true }
+      & './scripts/zap/Invoke-ZapScan.ps1' -ScanType baseline -ScannerTimeoutSeconds 660 @parameters
+      & './scripts/zap/Invoke-ZapScan.ps1' -ScanType full -ScannerTimeoutSeconds 1560 @parameters
+      [ordered]@{
+        status = 'scans-completed'
+        mutationAttempted = $false
+        sourceRevision = '$(Build.SourceVersion)'
+      } | ConvertTo-Json | Set-Content -LiteralPath '$(zapResultsPath)/run-status.json' -Encoding utf8NoBOM
+      New-Item -ItemType Directory -Path '$(zapSarifPath)' -Force | Out-Null
+      Copy-Item -LiteralPath (Join-Path $results 'baseline.sarif'), (Join-Path $results 'full.sarif') -Destination '$(zapSarifPath)'
+    displayName: Run report-only baseline and full scans
+    timeoutInMinutes: 45
+    env:
+      ZAP_AUTHORIZATION_RECORD: $(ZAP_AUTHORIZATION_RECORD)
+
+  - template: templates/publish-sarif.yml
+    parameters:
+      sarifPath: $(zapSarifPath)
+      reportType: third-party-sarif
+
+  - task: PublishPipelineArtifact@1
+    displayName: Publish raw ZAP reports
+    condition: always()
+    inputs:
+      targetPath: $(zapResultsPath)
+      artifact: zap-reports

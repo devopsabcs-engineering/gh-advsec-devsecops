@@ -1,0 +1,121 @@
+trigger: none
+
+pool:
+  vmImage: ubuntu-latest
+
+variables:
+  projectPath: src/webapp01/webapp01.csproj
+  evidenceDirectory: $(Build.ArtifactStagingDirectory)/dependency-admission
+
+steps:
+  - checkout: self
+    clean: true
+    fetchDepth: 0
+    persistCredentials: true
+
+  - pwsh: |
+      $required = @{
+          PullRequestId = $env:SYSTEM_PULLREQUEST_PULLREQUESTID
+          RepositoryId = $env:BUILD_REPOSITORY_ID
+          SourceCommitId = $env:SYSTEM_PULLREQUEST_SOURCECOMMITID
+          TargetBranch = $env:SYSTEM_PULLREQUEST_TARGETBRANCH
+      }
+      $missing = @($required.GetEnumerator() | Where-Object { [string]::IsNullOrWhiteSpace([string]$_.Value) } | ForEach-Object Key)
+      if ($env:BUILD_REASON -ne 'PullRequest' -or $missing.Count -gt 0) {
+          throw "Dependency admission requires an Azure Repos branch-policy pull request run. Missing variables: $($missing -join ', ')."
+      }
+    displayName: Require branch-policy pull request context
+
+  - task: UseDotNet@2
+    displayName: Use .NET SDK 9.0.x
+    inputs:
+      packageType: sdk
+      version: 9.0.x
+
+  - pwsh: |
+      $baseDirectory = Join-Path '$(Agent.TempDirectory)' 'dependency-base'
+      $headDirectory = Join-Path '$(Agent.TempDirectory)' 'dependency-head'
+      git fetch --no-tags origin "$env:SYSTEM_PULLREQUEST_TARGETBRANCH"
+      if ($LASTEXITCODE -ne 0) { throw 'Failed to fetch the pull request target revision.' }
+      $targetCommit = (git rev-parse FETCH_HEAD).Trim()
+      if ($LASTEXITCODE -ne 0 -or $targetCommit -notmatch '^[0-9a-f]{40}$') { throw 'Failed to resolve the pull request target commit.' }
+      git fetch --no-tags origin "$env:SYSTEM_PULLREQUEST_SOURCECOMMITID"
+      if ($LASTEXITCODE -ne 0) { throw 'Failed to fetch the pull request source revision.' }
+      git worktree add --detach $baseDirectory $targetCommit
+      if ($LASTEXITCODE -ne 0) { throw 'Failed to create the target dependency worktree.' }
+      git worktree add --detach $headDirectory $env:SYSTEM_PULLREQUEST_SOURCECOMMITID
+      if ($LASTEXITCODE -ne 0) { throw 'Failed to create the source dependency worktree.' }
+      Write-Host "##vso[task.setvariable variable=dependencyBaseDirectory]$baseDirectory"
+      Write-Host "##vso[task.setvariable variable=dependencyHeadDirectory]$headDirectory"
+    displayName: Prepare target and source revisions
+    env:
+      SYSTEM_PULLREQUEST_SOURCECOMMITID: $(System.PullRequest.SourceCommitId)
+      SYSTEM_PULLREQUEST_TARGETBRANCH: $(System.PullRequest.TargetBranch)
+
+  - pwsh: |
+      $basePackages = Join-Path '$(Agent.TempDirectory)' 'nuget-base'
+      $headPackages = Join-Path '$(Agent.TempDirectory)' 'nuget-head'
+      dotnet restore "$(dependencyBaseDirectory)/$(projectPath)" --packages $basePackages --force-evaluate
+      if ($LASTEXITCODE -ne 0) { throw 'Target dependency restore failed.' }
+      dotnet restore "$(dependencyHeadDirectory)/$(projectPath)" --packages $headPackages --force-evaluate
+      if ($LASTEXITCODE -ne 0) { throw 'Source dependency restore failed.' }
+      dotnet restore '$(projectPath)' --force-evaluate
+      if ($LASTEXITCODE -ne 0) { throw 'Checked-out dependency restore failed.' }
+    displayName: Restore resolved dependency graphs
+
+  - task: AdvancedSecurity-Dependency-Scanning@1
+    displayName: Publish native dependency alerts
+
+  - pwsh: |
+      $evidenceDirectory = '$(evidenceDirectory)'
+      New-Item -ItemType Directory -Path $evidenceDirectory -Force | Out-Null
+      & '$(Build.SourcesDirectory)/scripts/dependencies/Get-ResolvedNuGetGraph.ps1' -AssetsPath "$(dependencyBaseDirectory)/src/webapp01/obj/project.assets.json" -OutputPath "$evidenceDirectory/base-graph.json"
+      & '$(Build.SourcesDirectory)/scripts/dependencies/Get-ResolvedNuGetGraph.ps1' -AssetsPath "$(dependencyHeadDirectory)/src/webapp01/obj/project.assets.json" -OutputPath "$evidenceDirectory/head-graph.json"
+
+      . '$(Build.SourcesDirectory)/scripts/dependencies/Test-DependencyChanges.ps1'
+      $baseGraph = @(Get-Content -LiteralPath "$evidenceDirectory/base-graph.json" -Raw | ConvertFrom-Json -Depth 100)
+      $headGraph = @(Get-Content -LiteralPath "$evidenceDirectory/head-graph.json" -Raw | ConvertFrom-Json -Depth 100)
+        $metadata = @{}
+      foreach ($package in @(Get-ChangedNuGetPackage -BaseGraph $baseGraph -HeadGraph $headGraph)) {
+          $metadata["$($package.id)/$($package.version)"] = Get-NuGetRegistrationRecord -PackageId $package.id -Version $package.version
+      }
+      $metadata | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath "$evidenceDirectory/metadata.json" -Encoding utf8NoBOM
+        $result = Invoke-DependencyAdmission -BaseGraph $baseGraph -HeadGraph $headGraph -Metadata $metadata
+        $result | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath "$evidenceDirectory/dependency-admission.json" -Encoding utf8NoBOM
+      Write-Host "##vso[task.setvariable variable=dependencyAdmissionJsonReady]true"
+        ConvertTo-DependencyMarkdown -Result $result | Set-Content -LiteralPath "$evidenceDirectory/dependency-admission.md" -Encoding utf8NoBOM
+      Write-Host "##vso[task.setvariable variable=dependencyAdmissionMarkdownReady]true"
+        $exitCode = if ($result.passed) { 0 } else { 1 }
+        Write-Host "##vso[task.setvariable variable=dependencyAdmissionExitCode]$exitCode"
+    displayName: Evaluate changed resolved dependencies
+
+  - pwsh: |
+      & '$(Build.SourcesDirectory)/scripts/azure-devops/Set-PullRequestComment.ps1' `
+          -OrganizationUrl '$(System.CollectionUri)' `
+          -Project '$(System.TeamProject)' `
+          -RepositoryId '$(Build.Repository.ID)' `
+          -PullRequestId '$(System.PullRequest.PullRequestId)' `
+          -MarkdownPath '$(evidenceDirectory)/dependency-admission.md'
+    displayName: Publish marker-owned pull request summary
+    env:
+      SYSTEM_ACCESSTOKEN: $(System.AccessToken)
+
+  - task: PublishPipelineArtifact@1
+    displayName: Publish dependency admission JSON
+    condition: and(succeededOrFailed(), eq(variables['dependencyAdmissionJsonReady'], 'true'))
+    inputs:
+      targetPath: $(evidenceDirectory)/dependency-admission.json
+      artifact: dependency-admission-json
+
+  - task: PublishPipelineArtifact@1
+    displayName: Publish dependency admission Markdown
+    condition: and(succeededOrFailed(), eq(variables['dependencyAdmissionMarkdownReady'], 'true'))
+    inputs:
+      targetPath: $(evidenceDirectory)/dependency-admission.md
+      artifact: dependency-admission-markdown
+
+  - pwsh: |
+      if ('$(dependencyAdmissionExitCode)' -ne '0') {
+          throw 'Changed dependency admission failed. Review the published JSON, Markdown, and pull request summary.'
+      }
+    displayName: Enforce dependency admission verdict

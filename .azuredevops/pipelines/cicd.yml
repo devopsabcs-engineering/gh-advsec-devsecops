@@ -1,0 +1,419 @@
+name: cicd-$(Date:yyyyMMdd).$(Rev:r)
+
+trigger:
+  branches:
+    include:
+      - main
+
+parameters:
+  - name: azureLocation
+    displayName: Azure region
+    type: string
+    default: canadacentral
+    values:
+      - canadacentral
+      - canadaeast
+      - eastus
+      - eastus2
+      - westus
+      - westus2
+      - westeurope
+      - northeurope
+  - name: instanceNumber
+    displayName: Instance number
+    type: string
+    default: '007'
+
+pool:
+  vmImage: ubuntu-latest
+
+variables:
+  solutionPath: gh-aspnet-webapp-01.sln
+  imageRepository: webapp01
+  evidenceDirectory: $(Pipeline.Workspace)/signed-image-evidence
+  builderId: $(System.CollectionUri)$(System.TeamProject)/_build/definition/$(System.DefinitionId)
+
+stages:
+  - stage: Validate
+    displayName: Validate administrative inputs
+    jobs:
+      - job: ValidateInputs
+        steps:
+          - checkout: none
+          - pwsh: |
+              $ErrorActionPreference = 'Stop'
+              $requiredInputs = [ordered]@{
+                AZURE_SERVICE_CONNECTION = $env:AZURE_SERVICE_CONNECTION
+                AZURE_SUBSCRIPTION_ID = $env:AZURE_SUBSCRIPTION_ID
+                APPLICATION_ENVIRONMENT = $env:APPLICATION_ENVIRONMENT
+                DOCS_DATA_UPLOAD_PRINCIPAL_ID = $env:DOCS_DATA_UPLOAD_PRINCIPAL_ID
+                DOCS_STATIC_SITE_MANAGEMENT_PRINCIPAL_ID = $env:DOCS_STATIC_SITE_MANAGEMENT_PRINCIPAL_ID
+                SIGNING_KEY_VAULT_SUBSCRIPTION_ID = $env:SIGNING_KEY_VAULT_SUBSCRIPTION_ID
+                SIGNING_KEY_VAULT_RESOURCE_GROUP = $env:SIGNING_KEY_VAULT_RESOURCE_GROUP
+                SIGNING_KEY_VAULT_NAME = $env:SIGNING_KEY_VAULT_NAME
+                SIGNING_KEY_NAME = $env:SIGNING_KEY_NAME
+                SIGNING_PRINCIPAL_ID = $env:SIGNING_PRINCIPAL_ID
+                COSIGN_VERSION = $env:COSIGN_VERSION
+                COSIGN_DOWNLOAD_URL = $env:COSIGN_DOWNLOAD_URL
+                COSIGN_SHA256 = $env:COSIGN_SHA256
+                SBOM_TOOL_VERSION = $env:SBOM_TOOL_VERSION
+                SBOM_TOOL_DOWNLOAD_URL = $env:SBOM_TOOL_DOWNLOAD_URL
+                SBOM_TOOL_SHA256 = $env:SBOM_TOOL_SHA256
+              }
+              $missing = @($requiredInputs.GetEnumerator() | Where-Object { [string]::IsNullOrWhiteSpace([string]$_.Value) } | ForEach-Object Key)
+              if ($missing.Count -gt 0) {
+                throw "Mandatory administrative inputs are absent: $($missing -join ', '). Supply them through approved pipeline variables or variable groups."
+              }
+              if ('${{ parameters.instanceNumber }}' -notmatch '^[0-9]{3}$') {
+                throw 'instanceNumber must contain exactly three digits.'
+              }
+            displayName: Require approved deployment inputs
+            env:
+              AZURE_SERVICE_CONNECTION: $(AZURE_SERVICE_CONNECTION)
+              AZURE_SUBSCRIPTION_ID: $(AZURE_SUBSCRIPTION_ID)
+              APPLICATION_ENVIRONMENT: $(APPLICATION_ENVIRONMENT)
+              DOCS_DATA_UPLOAD_PRINCIPAL_ID: $(DOCS_DATA_UPLOAD_PRINCIPAL_ID)
+              DOCS_STATIC_SITE_MANAGEMENT_PRINCIPAL_ID: $(DOCS_STATIC_SITE_MANAGEMENT_PRINCIPAL_ID)
+              SIGNING_KEY_VAULT_SUBSCRIPTION_ID: $(SIGNING_KEY_VAULT_SUBSCRIPTION_ID)
+              SIGNING_KEY_VAULT_RESOURCE_GROUP: $(SIGNING_KEY_VAULT_RESOURCE_GROUP)
+              SIGNING_KEY_VAULT_NAME: $(SIGNING_KEY_VAULT_NAME)
+              SIGNING_KEY_NAME: $(SIGNING_KEY_NAME)
+              SIGNING_PRINCIPAL_ID: $(SIGNING_PRINCIPAL_ID)
+              COSIGN_VERSION: $(COSIGN_VERSION)
+              COSIGN_DOWNLOAD_URL: $(COSIGN_DOWNLOAD_URL)
+              COSIGN_SHA256: $(COSIGN_SHA256)
+              SBOM_TOOL_VERSION: $(SBOM_TOOL_VERSION)
+              SBOM_TOOL_DOWNLOAD_URL: $(SBOM_TOOL_DOWNLOAD_URL)
+              SBOM_TOOL_SHA256: $(SBOM_TOOL_SHA256)
+
+  - stage: Provision
+    displayName: Deploy Azure infrastructure
+    dependsOn: Validate
+    jobs:
+      - job: Deploy
+        steps:
+          - checkout: self
+            clean: true
+          - task: AzureCLI@2
+            name: deployInfrastructure
+            displayName: Deploy subscription-scope Bicep
+            inputs:
+              azureSubscription: $(AZURE_SERVICE_CONNECTION)
+              scriptType: pscore
+              scriptLocation: inlineScript
+              inlineScript: |
+                $ErrorActionPreference = 'Stop'
+                $instance = '${{ parameters.instanceNumber }}'
+                $location = '${{ parameters.azureLocation }}'
+                $resourceGroup = "rg-gh-aspnet-webapp-$instance"
+                $deploymentName = "deploy-infra-$instance"
+
+                $outputJson = az deployment sub create `
+                  --name $deploymentName `
+                  --location $location `
+                  --subscription $env:AZURE_SUBSCRIPTION_ID `
+                  --template-file blueprints/gh-aspnet-webapp/bicep/main.bicep `
+                  --parameters acrName="crdevsecopscldev$instance" `
+                  --parameters acrSku=Basic `
+                  --parameters appServicePlanName="asp-gh-aspnet-webapp-$instance" `
+                  --parameters webAppName="app-gh-aspnet-webapp-$instance" `
+                  --parameters location=$location `
+                  --parameters resourceGroupName=$resourceGroup `
+                  --parameters docsDataUploadPrincipalId=$env:DOCS_DATA_UPLOAD_PRINCIPAL_ID `
+                  --parameters docsStaticSiteManagementPrincipalId=$env:DOCS_STATIC_SITE_MANAGEMENT_PRINCIPAL_ID `
+                  --parameters signingKeyVaultSubscriptionId=$env:SIGNING_KEY_VAULT_SUBSCRIPTION_ID `
+                  --parameters signingKeyVaultResourceGroupName=$env:SIGNING_KEY_VAULT_RESOURCE_GROUP `
+                  --parameters signingKeyVaultName=$env:SIGNING_KEY_VAULT_NAME `
+                  --parameters signingKeyName=$env:SIGNING_KEY_NAME `
+                  --parameters signingPrincipalId=$env:SIGNING_PRINCIPAL_ID `
+                  --query properties.outputs `
+                  --output json
+                if ($LASTEXITCODE -ne 0) { throw 'Subscription deployment failed.' }
+
+                $outputs = $outputJson | ConvertFrom-Json -Depth 100
+                foreach ($name in @('resourceGroupName', 'webAppName', 'webAppUrl', 'acrLoginServer', 'docsStorageAccountName', 'docsWebEndpoint', 'signingKeyResourceId')) {
+                  $value = [string]$outputs.$name.value
+                  if ([string]::IsNullOrWhiteSpace($value)) { throw "Bicep output is absent: $name" }
+                  Write-Host "##vso[task.setvariable variable=$name;isOutput=true]$value"
+                }
+            env:
+              AZURE_SUBSCRIPTION_ID: $(AZURE_SUBSCRIPTION_ID)
+              DOCS_DATA_UPLOAD_PRINCIPAL_ID: $(DOCS_DATA_UPLOAD_PRINCIPAL_ID)
+              DOCS_STATIC_SITE_MANAGEMENT_PRINCIPAL_ID: $(DOCS_STATIC_SITE_MANAGEMENT_PRINCIPAL_ID)
+              SIGNING_KEY_VAULT_SUBSCRIPTION_ID: $(SIGNING_KEY_VAULT_SUBSCRIPTION_ID)
+              SIGNING_KEY_VAULT_RESOURCE_GROUP: $(SIGNING_KEY_VAULT_RESOURCE_GROUP)
+              SIGNING_KEY_VAULT_NAME: $(SIGNING_KEY_VAULT_NAME)
+              SIGNING_KEY_NAME: $(SIGNING_KEY_NAME)
+              SIGNING_PRINCIPAL_ID: $(SIGNING_PRINCIPAL_ID)
+
+  - stage: BuildEvidence
+    displayName: Build, sign, and verify immutable image
+    dependsOn: Provision
+    jobs:
+      - job: BuildSignVerify
+        variables:
+          acrLoginServer: $[ stageDependencies.Provision.Deploy.outputs['deployInfrastructure.acrLoginServer'] ]
+        steps:
+          - checkout: self
+            clean: true
+          - task: UseDotNet@2
+            displayName: Use .NET SDK 9.0.x
+            inputs:
+              packageType: sdk
+              version: 9.0.x
+          - task: DotNetCoreCLI@2
+            displayName: Restore solution
+            inputs:
+              command: restore
+              projects: $(solutionPath)
+          - task: DotNetCoreCLI@2
+            displayName: Build solution (Release)
+            inputs:
+              command: build
+              projects: $(solutionPath)
+              arguments: --configuration Release --no-restore
+          - task: DotNetCoreCLI@2
+            displayName: Publish application for SBOM generation
+            inputs:
+              command: publish
+              publishWebProjects: false
+              projects: src/webapp01/webapp01.csproj
+              arguments: --configuration Release --no-restore --output $(Agent.TempDirectory)/sbom-build-drop /p:UseAppHost=false
+              modifyOutputPath: false
+              zipAfterPublish: false
+          - pwsh: |
+              Write-Host "##vso[task.setvariable variable=buildStartedOn]$((Get-Date).ToUniversalTime().ToString('o'))"
+            displayName: Capture evidence build start
+          - template: templates/install-pinned-tool.yml
+            parameters:
+              toolId: cosign
+              version: $(COSIGN_VERSION)
+              downloadUrl: $(COSIGN_DOWNLOAD_URL)
+              sha256: $(COSIGN_SHA256)
+              destination: $(Agent.TempDirectory)/tools/cosign
+          - template: templates/install-pinned-tool.yml
+            parameters:
+              toolId: microsoft-sbom-tool
+              version: $(SBOM_TOOL_VERSION)
+              downloadUrl: $(SBOM_TOOL_DOWNLOAD_URL)
+              sha256: $(SBOM_TOOL_SHA256)
+              destination: $(Agent.TempDirectory)/tools/sbom-tool
+          - task: AzureCLI@2
+            name: createEvidence
+            displayName: Build, attest, and verify image evidence
+            inputs:
+              azureSubscription: $(AZURE_SERVICE_CONNECTION)
+              scriptType: pscore
+              scriptLocation: inlineScript
+              inlineScript: |
+                $ErrorActionPreference = 'Stop'
+                $evidence = '$(evidenceDirectory)'
+                $toolDirectory = '$(Agent.TempDirectory)/tools'
+                New-Item -ItemType Directory -Path $evidence -Force | Out-Null
+                & chmod +x "$toolDirectory/cosign" "$toolDirectory/sbom-tool"
+                if ($LASTEXITCODE -ne 0) { throw 'Unable to mark verified tools executable.' }
+                Write-Host "##vso[task.prependpath]$toolDirectory"
+
+                $acrLoginServer = '$(acrLoginServer)'
+                if ([string]::IsNullOrWhiteSpace($acrLoginServer)) { throw 'The suffixed ACR login-server output is absent.' }
+                $acrName = $acrLoginServer.Split('.')[0]
+                $commitTag = "$acrLoginServer/$(imageRepository):$(Build.SourceVersion)"
+                $latestTag = "$acrLoginServer/$(imageRepository):latest"
+
+                az acr login --name $acrName
+                if ($LASTEXITCODE -ne 0) { throw 'Workload-identity ACR login failed.' }
+                docker build src/webapp01 --file src/webapp01/Dockerfile --tag $commitTag --tag $latestTag
+                if ($LASTEXITCODE -ne 0) { throw 'Container image build failed.' }
+                docker push $commitTag
+                if ($LASTEXITCODE -ne 0) { throw 'Commit image push failed.' }
+                docker push $latestTag
+                if ($LASTEXITCODE -ne 0) { throw 'Convenience image push failed.' }
+
+                $digest = az acr repository show --name $acrName --image "$(imageRepository):$(Build.SourceVersion)" --query digest --output tsv
+                if ($LASTEXITCODE -ne 0 -or $digest -notmatch '^sha256:[a-fA-F0-9]{64}$') { throw 'Unable to resolve the pushed commit image digest.' }
+                $imageReference = "$acrLoginServer/$(imageRepository)@$digest"
+
+                $buildDrop = '$(Agent.TempDirectory)/sbom-build-drop'
+                if (-not (Test-Path -LiteralPath (Join-Path $buildDrop 'webapp01.dll') -PathType Leaf)) { throw 'The Release publish drop for SBOM generation is absent.' }
+                $namespace = "$(System.CollectionUri)$(System.TeamProject)/_build/results?buildId=$(Build.BuildId)"
+                & "$toolDirectory/sbom-tool" Generate -b $buildDrop -bc '$(Build.SourcesDirectory)' -pn 'webapp01' -pv '$(Build.SourceVersion)' -ps '$(System.TeamProject)' -nsb $namespace
+                if ($LASTEXITCODE -ne 0) { throw 'SPDX SBOM generation failed.' }
+                $generatedSbom = Join-Path $buildDrop '_manifest/spdx_2.2/manifest.spdx.json'
+                if (-not (Test-Path -LiteralPath $generatedSbom -PathType Leaf)) { throw 'The SPDX SBOM output is absent.' }
+                $sbomPath = Join-Path $evidence 'spdx-sbom.json'
+                Copy-Item -LiteralPath $generatedSbom -Destination $sbomPath
+                $sbomDigest = 'sha256:' + (Get-FileHash -LiteralPath $sbomPath -Algorithm SHA256).Hash.ToLowerInvariant()
+
+                $provenancePath = Join-Path $evidence 'slsa-provenance.json'
+                & ./scripts/provenance/New-SlsaProvenance.ps1 `
+                  -ImageDigest $digest `
+                  -SourceRepository '$(Build.Repository.Uri)' `
+                  -SourceRevision '$(Build.SourceVersion)' `
+                  -SourceRef '$(Build.SourceBranch)' `
+                  -BuilderId '$(builderId)' `
+                  -BuildUri '$(Build.BuildUri)' `
+                  -BuildId '$(Build.BuildId)' `
+                  -DefinitionId '$(System.DefinitionId)' `
+                  -YamlPath '.azuredevops/pipelines/cicd.yml' `
+                  -SbomDigest $sbomDigest `
+                  -StartedOn '$(buildStartedOn)' `
+                  -FinishedOn (Get-Date).ToUniversalTime() `
+                  -OutputPath $provenancePath
+
+                $keyUri = "azurekms://$env:SIGNING_KEY_VAULT_NAME.vault.azure.net/$env:SIGNING_KEY_NAME"
+                $publicKeyPath = Join-Path $evidence 'cosign.pub'
+                & "$toolDirectory/cosign" public-key --key $keyUri | Set-Content -LiteralPath $publicKeyPath -Encoding utf8NoBOM
+                if ($LASTEXITCODE -ne 0) { throw 'Unable to export the Cosign public key.' }
+                $cosignPath = "$toolDirectory/cosign"
+                if (-not (Test-Path -LiteralPath $cosignPath -PathType Leaf)) { throw 'The verified Cosign executable is absent.' }
+                & ./scripts/provenance/Sign-And-AttestImage.ps1 -ImageReference $imageReference -KeyVaultKeyUri $keyUri -SbomPath $sbomPath -ProvenancePath $provenancePath -CosignExecutablePath $cosignPath
+                & ./scripts/provenance/Verify-ImageEvidence.ps1 -ImageReference $imageReference -PublicKeyPath $publicKeyPath -SbomPath $sbomPath -ProvenancePath $provenancePath -ExpectedRevision '$(Build.SourceVersion)' -ExpectedBuilderId '$(builderId)' -ExpectedSbomDigest $sbomDigest -CosignExecutablePath $cosignPath
+
+                [ordered]@{
+                  imageReference = $imageReference
+                  sourceRevision = '$(Build.SourceVersion)'
+                  builderId = '$(builderId)'
+                  sbomDigest = $sbomDigest
+                  verifiedOn = (Get-Date).ToUniversalTime().ToString('o')
+                } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $evidence 'deployment-evidence.json') -Encoding utf8NoBOM
+                Write-Host "##vso[task.setvariable variable=imageReference;isOutput=true]$imageReference"
+                Write-Host "##vso[task.setvariable variable=sbomDigest;isOutput=true]$sbomDigest"
+            env:
+              SIGNING_KEY_VAULT_NAME: $(SIGNING_KEY_VAULT_NAME)
+              SIGNING_KEY_NAME: $(SIGNING_KEY_NAME)
+          - pwsh: |
+              $ErrorActionPreference = 'Stop'
+              $evidence = '$(evidenceDirectory)'
+              $leaseDaysText = [string]$env:AUDIT_RETENTION_LEASE_DAYS
+              if ([string]::IsNullOrWhiteSpace($leaseDaysText) -or $leaseDaysText -match '^\$\([A-Za-z_][A-Za-z0-9_]*\)$') {
+                @{ status = 'disabled'; reason = 'AUDIT_RETENTION_LEASE_DAYS was not approved.' } |
+                  ConvertTo-Json | Set-Content -LiteralPath (Join-Path $evidence 'retention-lease.json') -Encoding utf8NoBOM
+                return
+              }
+              $leaseDays = 0
+              if (-not [int]::TryParse($leaseDaysText, [ref]$leaseDays) -or $leaseDays -le 0) {
+                throw 'AUDIT_RETENTION_LEASE_DAYS must be a positive approved integer when supplied.'
+              }
+              if ([string]::IsNullOrWhiteSpace($env:SYSTEM_ACCESSTOKEN)) { throw 'System.AccessToken is required to create the approved retention lease.' }
+              $uri = "$($env:SYSTEM_COLLECTIONURI)$($env:SYSTEM_TEAMPROJECTID)/_apis/build/retention/leases?api-version=7.1"
+              $body = @(@{
+                daysValid = $leaseDays
+                definitionId = [int]$env:SYSTEM_DEFINITIONID
+                ownerId = "User:$($env:BUILD_REQUESTEDFORID)"
+                protectPipeline = $false
+                runId = [int]$env:BUILD_BUILDID
+              }) | ConvertTo-Json
+              $response = Invoke-RestMethod -Method Post -Uri $uri -Headers @{ Authorization = "Bearer $env:SYSTEM_ACCESSTOKEN" } -ContentType 'application/json' -Body $body
+              $leaseId = [string]@($response)[0].leaseId
+              if ([string]::IsNullOrWhiteSpace($leaseId)) { throw 'The retention API did not return a lease ID.' }
+              @{ status = 'created'; leaseId = $leaseId; daysValid = $leaseDays } |
+                ConvertTo-Json | Set-Content -LiteralPath (Join-Path $evidence 'retention-lease.json') -Encoding utf8NoBOM
+            displayName: Create optional approved evidence lease
+            env:
+              AUDIT_RETENTION_LEASE_DAYS: $(AUDIT_RETENTION_LEASE_DAYS)
+              SYSTEM_ACCESSTOKEN: $(System.AccessToken)
+          - task: PublishPipelineArtifact@1
+            displayName: Publish signed image evidence
+            inputs:
+              targetPath: $(evidenceDirectory)
+              artifact: signed-image-evidence
+
+  - stage: Deploy
+    displayName: Deploy verified digest
+    dependsOn:
+      - Provision
+      - BuildEvidence
+    variables:
+      resourceGroupName: $[ stageDependencies.Provision.Deploy.outputs['deployInfrastructure.resourceGroupName'] ]
+      webAppName: $[ stageDependencies.Provision.Deploy.outputs['deployInfrastructure.webAppName'] ]
+      webAppUrl: $[ stageDependencies.Provision.Deploy.outputs['deployInfrastructure.webAppUrl'] ]
+      acrLoginServer: $[ stageDependencies.Provision.Deploy.outputs['deployInfrastructure.acrLoginServer'] ]
+      imageReference: $[ stageDependencies.BuildEvidence.BuildSignVerify.outputs['createEvidence.imageReference'] ]
+      sbomDigest: $[ stageDependencies.BuildEvidence.BuildSignVerify.outputs['createEvidence.sbomDigest'] ]
+    jobs:
+      - deployment: DeployWebApp
+        displayName: Deploy Web App by digest
+        environment: $(APPLICATION_ENVIRONMENT)
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - checkout: self
+                  clean: true
+                - task: DownloadPipelineArtifact@2
+                  displayName: Download signed image evidence
+                  inputs:
+                    artifact: signed-image-evidence
+                    path: $(Pipeline.Workspace)/signed-image-evidence
+                - template: templates/install-pinned-tool.yml
+                  parameters:
+                    toolId: cosign
+                    version: $(COSIGN_VERSION)
+                    downloadUrl: $(COSIGN_DOWNLOAD_URL)
+                    sha256: $(COSIGN_SHA256)
+                    destination: $(Agent.TempDirectory)/tools/cosign
+                - task: AzureCLI@2
+                  displayName: Reverify evidence and deploy immutable image
+                  inputs:
+                    azureSubscription: $(AZURE_SERVICE_CONNECTION)
+                    scriptType: pscore
+                    scriptLocation: inlineScript
+                    inlineScript: |
+                      $ErrorActionPreference = 'Stop'
+                      $toolDirectory = '$(Agent.TempDirectory)/tools'
+                      & chmod +x "$toolDirectory/cosign"
+                      if ($LASTEXITCODE -ne 0) { throw 'Unable to mark the verified Cosign binary executable.' }
+                      Write-Host "##vso[task.prependpath]$toolDirectory"
+                      $cosignPath = "$toolDirectory/cosign"
+                      if (-not (Test-Path -LiteralPath $cosignPath -PathType Leaf)) { throw 'The verified Cosign executable is absent.' }
+
+                      $imageReference = '$(imageReference)'
+                      if ($imageReference -notmatch '@sha256:[a-fA-F0-9]{64}$') { throw 'Deployment requires a digest-qualified image.' }
+                      $acrName = '$(acrLoginServer)'.Split('.')[0]
+                      az acr login --name $acrName
+                      if ($LASTEXITCODE -ne 0) { throw 'Workload-identity ACR login failed during deployment verification.' }
+                      & ./scripts/provenance/Verify-ImageEvidence.ps1 `
+                        -ImageReference $imageReference `
+                        -PublicKeyPath '$(Pipeline.Workspace)/signed-image-evidence/cosign.pub' `
+                        -SbomPath '$(Pipeline.Workspace)/signed-image-evidence/spdx-sbom.json' `
+                        -ProvenancePath '$(Pipeline.Workspace)/signed-image-evidence/slsa-provenance.json' `
+                        -ExpectedRevision '$(Build.SourceVersion)' `
+                        -ExpectedBuilderId '$(builderId)' `
+                        -ExpectedSbomDigest '$(sbomDigest)' `
+                        -CosignExecutablePath $cosignPath
+
+                      az webapp config container set `
+                        --name '$(webAppName)' `
+                        --resource-group '$(resourceGroupName)' `
+                        --container-image-name $imageReference `
+                        --container-registry-url "https://$(acrLoginServer)" `
+                        --only-show-errors
+                      if ($LASTEXITCODE -ne 0) { throw 'Digest-only Web App deployment failed.' }
+                      az webapp config appsettings set `
+                        --name '$(webAppName)' `
+                        --resource-group '$(resourceGroupName)' `
+                        --settings WEBSITES_PORT=8080 WEBSITES_ENABLE_APP_SERVICE_STORAGE=false `
+                        --only-show-errors | Out-Null
+                      if ($LASTEXITCODE -ne 0) { throw 'Web App runtime configuration failed.' }
+                - pwsh: |
+                    $ErrorActionPreference = 'Stop'
+                    $uri = [uri]'$(webAppUrl)'
+                    for ($attempt = 1; $attempt -le 12; $attempt++) {
+                      try {
+                        $response = Invoke-WebRequest -Uri $uri -MaximumRedirection 5 -TimeoutSec 20
+                        if ($response.StatusCode -ge 200 -and $response.StatusCode -lt 400) {
+                          Write-Host "Web App readiness passed: $uri"
+                          return
+                        }
+                      }
+                      catch {
+                        if ($attempt -eq 12) { throw "Web App readiness failed after $attempt attempts: $($_.Exception.Message)" }
+                      }
+                      Start-Sleep -Seconds 10
+                    }
+                  displayName: Smoke-check Web App readiness
+                - pwsh: |
+                    Write-Host "Deployed immutable image: $(imageReference)"
+                    Write-Host "Stable Web App endpoint: $(webAppUrl)"
+                    Write-Host "Signed evidence artifact: signed-image-evidence"
+                  displayName: Emit deployment summary

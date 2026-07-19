@@ -1,0 +1,64 @@
+trigger:
+  branches:
+    include:
+      - main
+
+schedules:
+  - cron: '0 1 * * 0'
+    displayName: Sunday Grype scan
+    branches:
+      include:
+        - main
+    always: true
+
+pool:
+  vmImage: ubuntu-latest
+
+variables:
+  IMAGE_NAME: webapp01
+  GRYPE_SARIF: $(Build.ArtifactStagingDirectory)/sarif/grype.sarif
+
+steps:
+  - checkout: self
+    persistCredentials: false
+
+  - task: Docker@2
+    displayName: Build deterministic local application image
+    inputs:
+      command: build
+      repository: $(IMAGE_NAME)
+      Dockerfile: src/webapp01/Dockerfile
+      buildContext: src/webapp01
+      tags: $(Build.SourceVersion)
+
+  - pwsh: |
+      $ErrorActionPreference = 'Stop'
+      if ($env:GRYPE_IMAGE -notmatch '^[a-z0-9][a-z0-9._/-]*$') { throw 'GRYPE_IMAGE must identify a reviewed container repository without a tag.' }
+      if ($env:GRYPE_DIGEST_OR_SHA256 -notmatch '^sha256:[a-fA-F0-9]{64}$') { throw 'GRYPE_DIGEST_OR_SHA256 must be an approved container digest.' }
+      if ([string]::IsNullOrWhiteSpace($env:GRYPE_VERSION)) { throw 'GRYPE_VERSION is required for audited tool inventory.' }
+
+      $outputDirectory = Split-Path -Parent '$(GRYPE_SARIF)'
+      New-Item -ItemType Directory -Path $outputDirectory -Force | Out-Null
+      $outputDirectory = (Resolve-Path -LiteralPath $outputDirectory).Path
+      $applicationImage = '$(IMAGE_NAME):$(Build.SourceVersion)'
+      docker image inspect $applicationImage | Out-Null
+      if ($LASTEXITCODE -ne 0) { throw 'The deterministic local application image is unavailable.' }
+      docker run --rm `
+          --volume /var/run/docker.sock:/var/run/docker.sock `
+          --volume "${outputDirectory}:/results" `
+          "$env:GRYPE_IMAGE@$env:GRYPE_DIGEST_OR_SHA256" `
+          "docker:$applicationImage" --output sarif --file /results/grype.sarif --fail-on critical
+      $scanExitCode = $LASTEXITCODE
+      if ($scanExitCode -notin @(0, 2)) { throw "Grype execution failed with exit code $scanExitCode." }
+      Write-Host 'Grype critical findings are report-only because fail-build=false; scanner and report failures remain fatal.'
+      exit 0
+    displayName: Run immutable report-only Grype scan
+    env:
+      GRYPE_IMAGE: $(GRYPE_IMAGE)
+      GRYPE_VERSION: $(GRYPE_VERSION)
+      GRYPE_DIGEST_OR_SHA256: $(GRYPE_DIGEST_OR_SHA256)
+
+  - template: templates/publish-sarif.yml
+    parameters:
+      sarifPath: $(GRYPE_SARIF)
+      reportType: third-party-sarif

@@ -1,0 +1,8 @@
+{
+  "version": 3,
+  "libraries": {
+    "Example.Package/2.0.0": { "type": "package", "sha512": "fixture" },
+    "Another.Package/1.5.0": { "type": "package", "sha512": "fixture" },
+    "webapp01/1.0.0": { "type": "project" }
+  }
+}

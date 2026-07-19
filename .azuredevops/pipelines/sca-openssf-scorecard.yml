@@ -1,0 +1,147 @@
+name: sca-openssf-scorecard-$(Date:yyyyMMdd).$(Rev:r)
+
+trigger:
+  branches:
+    include:
+      - main
+
+schedules:
+  - cron: '25 23 * * 3'
+    displayName: Wednesday OpenSSF Scorecard refresh
+    branches:
+      include:
+        - main
+    always: true
+
+resources:
+  repositories:
+    - repository: projectWiki
+      type: git
+      name: DevSecOps.wiki
+      ref: refs/heads/wikiMaster
+
+pool:
+  vmImage: ubuntu-latest
+
+variables:
+  scorecardDirectory: $(Build.ArtifactStagingDirectory)/openssf-scorecard-json
+  retentionDays: 30
+
+steps:
+  - checkout: self
+    clean: true
+    persistCredentials: false
+    path: source
+  - checkout: projectWiki
+    clean: true
+    persistCredentials: false
+    fetchDepth: 1
+    path: project-wiki
+  - pwsh: |
+      $ErrorActionPreference = 'Stop'
+      $requiredInputs = [ordered]@{
+        SCORECARD_IMAGE = $env:SCORECARD_IMAGE
+        SCORECARD_IMAGE_DIGEST = $env:SCORECARD_IMAGE_DIGEST
+        SCORECARD_REPOSITORY_URI = $env:SCORECARD_REPOSITORY_URI
+        PROJECT_WIKI_IDENTIFIER = $env:PROJECT_WIKI_IDENTIFIER
+        PLATFORM_GAP_SCORECARD_PUBLICATION_DISPOSITION = $env:PLATFORM_GAP_SCORECARD_PUBLICATION_DISPOSITION
+      }
+      $missing = @($requiredInputs.GetEnumerator() | Where-Object { [string]::IsNullOrWhiteSpace([string]$_.Value) } | ForEach-Object Key)
+      if ($missing.Count -gt 0) {
+        throw "Mandatory Scorecard inputs are absent: $($missing -join ', '). Supply approved variables and map secrets through a protected variable group."
+      }
+      if ($env:SCORECARD_IMAGE -notmatch '^[a-z0-9][a-z0-9._/-]*$' -or $env:SCORECARD_IMAGE -match '(?i)(?:^|/)(latest|main|master)$') {
+        throw 'SCORECARD_IMAGE must be a reviewed container repository without a mutable tag.'
+      }
+      if ($env:SCORECARD_IMAGE_DIGEST -notmatch '^sha256:[a-fA-F0-9]{64}$') { throw 'SCORECARD_IMAGE_DIGEST must be an approved SHA-256 image digest.' }
+      if ($env:SCORECARD_REPOSITORY_URI -notmatch '^https://[^\s]+$') { throw 'SCORECARD_REPOSITORY_URI must be an approved HTTPS repository URI supported by Scorecard.' }
+      if ($env:PLATFORM_GAP_SCORECARD_PUBLICATION_DISPOSITION -notin @('accepted', 'retained', 'retired')) {
+        throw 'PLATFORM_GAP_SCORECARD_PUBLICATION_DISPOSITION must be accepted, retained, or retired. This pipeline does not implement a public publisher replacement.'
+      }
+      Write-Host "Public OpenSSF publication is not implemented. Approved disposition: $env:PLATFORM_GAP_SCORECARD_PUBLICATION_DISPOSITION."
+      Write-Host 'Azure Repos branch policy owns pull request and branch-protection validation; YAML has no pull request trigger.'
+    displayName: Require immutable Scorecard inputs and platform-gap disposition
+    env:
+      SCORECARD_IMAGE: $(SCORECARD_IMAGE)
+      SCORECARD_IMAGE_DIGEST: $(SCORECARD_IMAGE_DIGEST)
+      SCORECARD_REPOSITORY_URI: $(SCORECARD_REPOSITORY_URI)
+      PROJECT_WIKI_IDENTIFIER: $(PROJECT_WIKI_IDENTIFIER)
+      PLATFORM_GAP_SCORECARD_PUBLICATION_DISPOSITION: $(PLATFORM_GAP_SCORECARD_PUBLICATION_DISPOSITION)
+  - pwsh: |
+      $ErrorActionPreference = 'Stop'
+      $outputDirectory = '$(scorecardDirectory)'
+      New-Item -ItemType Directory -Path $outputDirectory -Force | Out-Null
+      $outputDirectory = (Resolve-Path -LiteralPath $outputDirectory).Path
+      $scorecardImage = "$env:SCORECARD_IMAGE@$env:SCORECARD_IMAGE_DIGEST"
+
+      $hostUid = [string](& id -u)
+      if ($LASTEXITCODE -ne 0 -or $hostUid -notmatch '^[1-9][0-9]*$') { throw 'Hosted agent UID retrieval failed or returned a non-numeric/root UID.' }
+      $hostGid = [string](& id -g)
+      if ($LASTEXITCODE -ne 0 -or $hostGid -notmatch '^[1-9][0-9]*$') { throw 'Hosted agent GID retrieval failed or returned a non-numeric/root GID.' }
+
+      docker run --rm `
+        --user "${hostUid}:${hostGid}" `
+        --env AZURE_DEVOPS_AUTH_TOKEN `
+        --env SCORECARD_EXPERIMENTAL `
+        --volume "${outputDirectory}:/results" `
+        $scorecardImage `
+        --repo $env:SCORECARD_REPOSITORY_URI `
+        --format json `
+        --output /results/scorecard-results.json
+      if ($LASTEXITCODE -ne 0) { throw 'OpenSSF Scorecard execution failed.' }
+
+      $resultPath = Join-Path $outputDirectory 'scorecard-results.json'
+      $result = Get-Content -LiteralPath $resultPath -Raw | ConvertFrom-Json -Depth 100
+      if ($null -eq $result.score -or @($result.checks).Count -eq 0) { throw 'Scorecard JSON lacks the required score or checks.' }
+      foreach ($check in @($result.checks)) {
+        if ([string]::IsNullOrWhiteSpace([string]$check.name) -or $null -eq $check.score) { throw 'Scorecard JSON contains an invalid check entry.' }
+      }
+    displayName: Generate and validate authoritative Scorecard JSON
+    env:
+      SCORECARD_IMAGE: $(SCORECARD_IMAGE)
+      SCORECARD_IMAGE_DIGEST: $(SCORECARD_IMAGE_DIGEST)
+      SCORECARD_REPOSITORY_URI: $(SCORECARD_REPOSITORY_URI)
+      AZURE_DEVOPS_AUTH_TOKEN: $(System.AccessToken)
+      SCORECARD_EXPERIMENTAL: '1'
+  - task: PublishPipelineArtifact@1
+    displayName: Publish authoritative Scorecard JSON
+    inputs:
+      targetPath: $(scorecardDirectory)
+      artifact: openssf-scorecard-json
+  - pwsh: |
+      $ErrorActionPreference = 'Stop'
+      if ([string]::IsNullOrWhiteSpace($env:SYSTEM_ACCESSTOKEN)) { throw 'SYSTEM_ACCESSTOKEN must be explicitly available for the approved 30-day retention lease.' }
+      $leaseUri = "$(System.CollectionUri)$(System.TeamProject)/_apis/build/retention/leases?api-version=7.1"
+      $lease = ConvertTo-Json -InputObject @(@{
+        daysValid = 30
+        definitionId = [int]'$(System.DefinitionId)'
+        ownerId = 'Phase7-OpenSSF-Scorecard'
+        protectPipeline = $false
+        runId = [int]'$(Build.BuildId)'
+      }) -Depth 10
+      Invoke-RestMethod -Method Post -Uri $leaseUri -Headers @{ Authorization = "Bearer $env:SYSTEM_ACCESSTOKEN" } -ContentType 'application/json' -Body $lease | Out-Null
+    displayName: Retain Scorecard run for 30 days
+    env:
+      SYSTEM_ACCESSTOKEN: $(System.AccessToken)
+  - pwsh: |
+      $ErrorActionPreference = 'Stop'
+      if ([string]::IsNullOrWhiteSpace($env:SYSTEM_ACCESSTOKEN)) { throw 'SYSTEM_ACCESSTOKEN must be explicitly available for project-wiki publication.' }
+      $runUrl = "$(System.CollectionUri)$(System.TeamProject)/_build/results?buildId=$(Build.BuildId)"
+      $artifactUrl = "$runUrl&view=artifacts&type=publishedArtifacts"
+      & '$(Pipeline.Workspace)/source/scripts/azure-devops/Publish-WikiSummary.ps1' `
+        -OrganizationUrl '$(System.CollectionUri)' `
+        -Project '$(System.TeamProject)' `
+        -WikiIdentifier $env:PROJECT_WIKI_IDENTIFIER `
+        -ReportType 'openssf-scorecard' `
+        -ScorecardJsonPath '$(scorecardDirectory)/scorecard-results.json' `
+        -SourceRevision '$(Build.SourceVersion)' `
+        -RunUrl $runUrl `
+        -ArtifactUrl $artifactUrl `
+        -PlatformGapDisposition $env:PLATFORM_GAP_SCORECARD_PUBLICATION_DISPOSITION `
+        -RoutingPath '$(Pipeline.Workspace)/source/.azuredevops/pipelines/config/visualization-routing.json' `
+        -AccessToken $env:SYSTEM_ACCESSTOKEN
+    displayName: Publish sanitized project-wiki Scorecard summary
+    env:
+      PROJECT_WIKI_IDENTIFIER: $(PROJECT_WIKI_IDENTIFIER)
+      PLATFORM_GAP_SCORECARD_PUBLICATION_DISPOSITION: $(PLATFORM_GAP_SCORECARD_PUBLICATION_DISPOSITION)
+      SYSTEM_ACCESSTOKEN: $(System.AccessToken)

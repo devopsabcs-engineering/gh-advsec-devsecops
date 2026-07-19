@@ -1,0 +1,49 @@
+parameters:
+  - name: sarifPath
+    type: string
+  - name: reportType
+    type: string
+    default: third-party-sarif
+
+steps:
+  - pwsh: |
+      if ('${{ parameters.reportType }}' -in @('ghazdo-codeql', 'ghazdo-dependencies')) {
+          throw 'GHAzDO-native results must publish directly to Advanced Security.'
+      }
+      & '$(Build.SourcesDirectory)/scripts/sarif/Test-Sarif.ps1' -Path '${{ parameters.sarifPath }}'
+    displayName: Validate third-party SARIF
+  - pwsh: |
+      $source = Get-Item -LiteralPath (Resolve-Path -LiteralPath '${{ parameters.sarifPath }}' -ErrorAction Stop)
+      $stagingDirectory = '$(Agent.TempDirectory)/validated-third-party-sarif'
+
+      Remove-Item -LiteralPath $stagingDirectory -Recurse -Force -ErrorAction SilentlyContinue
+      New-Item -ItemType Directory -Path $stagingDirectory -Force | Out-Null
+
+      $sarifFiles = if ($source.PSIsContainer) {
+          @(Get-ChildItem -LiteralPath $source.FullName -File -Filter '*.sarif' | Sort-Object FullName)
+      }
+      elseif ($source.Extension -eq '.sarif') {
+          @($source)
+      }
+      else {
+          @()
+      }
+
+      foreach ($sarifFile in $sarifFiles) {
+          Copy-Item -LiteralPath $sarifFile.FullName -Destination $stagingDirectory
+      }
+
+      if (@(Get-ChildItem -LiteralPath $stagingDirectory -File -Filter '*.sarif').Count -eq 0) {
+          throw 'No validated SARIF files were staged for Advanced Security publication.'
+      }
+    displayName: Stage validated SARIF for Advanced Security
+  - task: PublishBuildArtifacts@1
+    displayName: Publish SARIF Scans artifact
+    inputs:
+      PathtoPublish: ${{ parameters.sarifPath }}
+      ArtifactName: CodeAnalysisLogs
+      publishLocation: Container
+  - task: AdvancedSecurity-Publish@1
+    displayName: Publish SARIF to Advanced Security Code Scanning
+    inputs:
+      SarifsInputDirectory: $(Agent.TempDirectory)/validated-third-party-sarif

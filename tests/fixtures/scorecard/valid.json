@@ -1,0 +1,20 @@
+{
+  "date": "2026-07-16T00:00:00Z",
+  "repo": {
+    "name": "example/repository",
+    "commit": "0123456789abcdef"
+  },
+  "score": 8.4,
+  "checks": [
+    {
+      "name": "Binary-Artifacts",
+      "score": 10,
+      "reason": "raw-sensitive-detail"
+    },
+    {
+      "name": "Maintained",
+      "score": 7,
+      "reason": "raw-sensitive-detail"
+    }
+  ]
+}

@@ -1,0 +1,104 @@
+name: docs-static-$(Date:yyyyMMdd).$(Rev:r)
+
+trigger:
+  branches:
+    include:
+      - main
+
+resources:
+  repositories:
+    - repository: projectWiki
+      type: git
+      name: DevSecOps.wiki
+      ref: refs/heads/wikiMaster
+
+pool:
+  vmImage: ubuntu-latest
+
+variables:
+  stagedWikiPath: $(Build.ArtifactStagingDirectory)/wiki-documentation
+
+stages:
+  - stage: Build
+    displayName: Stage and validate documentation wiki pages
+    jobs:
+      - job: StageWikiDocumentation
+        steps:
+          - checkout: self
+            clean: true
+          - pwsh: |
+              $ErrorActionPreference = 'Stop'
+              $requiredInputs = [ordered]@{
+                PROJECT_WIKI_IDENTIFIER = $env:PROJECT_WIKI_IDENTIFIER
+                DOCUMENTATION_ENVIRONMENT = $env:DOCUMENTATION_ENVIRONMENT
+              }
+              $missing = @($requiredInputs.GetEnumerator() | Where-Object { [string]::IsNullOrWhiteSpace([string]$_.Value) } | ForEach-Object Key)
+              if ($missing.Count -gt 0) {
+                throw "Mandatory documentation inputs are absent: $($missing -join ', '). Supply them through approved pipeline variables or variable groups."
+              }
+            displayName: Require approved wiki inputs
+            env:
+              PROJECT_WIKI_IDENTIFIER: $(PROJECT_WIKI_IDENTIFIER)
+              DOCUMENTATION_ENVIRONMENT: $(DOCUMENTATION_ENVIRONMENT)
+          - pwsh: |
+              ./scripts/azure-devops/Publish-DocumentationWiki.ps1 `
+                -Mode Stage `
+                -RepositoryRoot '$(Build.SourcesDirectory)' `
+                -StagingPath '$(stagedWikiPath)'
+            displayName: Stage approved Markdown pages and manifest
+          - pwsh: |
+              $ErrorActionPreference = 'Stop'
+              $manifestPath = Join-Path '$(stagedWikiPath)' 'wiki-documentation-manifest.json'
+              $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json -Depth 20
+              if ($manifest.namespace -ne '/Documentation' -or @($manifest.pages).Count -ne 5) {
+                throw 'The staged wiki manifest does not contain the approved Documentation page set.'
+              }
+            displayName: Validate staged wiki manifest
+          - task: PublishPipelineArtifact@1
+            displayName: Publish authoritative wiki documentation
+            inputs:
+              targetPath: $(stagedWikiPath)
+              artifact: wiki-documentation
+
+  - stage: Deploy
+    displayName: Publish documentation to the project wiki
+    dependsOn: Build
+    lockBehavior: runLatest
+    jobs:
+      - deployment: PublishProjectWiki
+        displayName: Publish validated Documentation pages
+        environment: $(DOCUMENTATION_ENVIRONMENT)
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - checkout: self
+                  clean: true
+                  path: source
+                - checkout: projectWiki
+                  clean: true
+                  fetchDepth: 1
+                  path: project-wiki
+                - task: DownloadPipelineArtifact@2
+                  displayName: Download authoritative wiki documentation
+                  inputs:
+                    artifact: wiki-documentation
+                    path: $(Pipeline.Workspace)/wiki-documentation
+                - pwsh: |
+                    $ErrorActionPreference = 'Stop'
+                    if ([string]::IsNullOrWhiteSpace($env:SYSTEM_ACCESSTOKEN)) {
+                      throw 'System.AccessToken must be mapped explicitly for project-wiki publication.'
+                    }
+                    & '$(Pipeline.Workspace)/source/scripts/azure-devops/Publish-DocumentationWiki.ps1' `
+                      -Mode Publish `
+                      -StagingPath '$(Pipeline.Workspace)/wiki-documentation' `
+                      -OrganizationUrl '$(System.CollectionUri)' `
+                      -Project '$(System.TeamProject)' `
+                      -WikiIdentifier '$(PROJECT_WIKI_IDENTIFIER)'
+                  displayName: Publish Documentation pages with optimistic concurrency
+                  env:
+                    SYSTEM_ACCESSTOKEN: $(System.AccessToken)
+                - pwsh: |
+                    Write-Host 'Documentation publication completed through the protected environment.'
+                    Write-Host 'Project wiki path: /Documentation'
+                  displayName: Emit documentation publication summary

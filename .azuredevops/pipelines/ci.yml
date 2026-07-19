@@ -1,0 +1,45 @@
+name: ci-$(Date:yyyyMMdd).$(Rev:r)
+
+# Azure Repos pull request validation is owned by the blocking branch policy.
+trigger: none
+
+pool:
+  vmImage: ubuntu-latest
+
+variables:
+  solutionPath: gh-aspnet-webapp-01.sln
+  imageName: webapp01
+  imageTag: $(Build.SourceVersion)
+
+steps:
+  - checkout: self
+    clean: true
+
+  - task: UseDotNet@2
+    displayName: Use .NET SDK 9.0.x
+    inputs:
+      packageType: sdk
+      version: 9.0.x
+
+  - task: DotNetCoreCLI@2
+    displayName: Restore solution
+    inputs:
+      command: restore
+      projects: $(solutionPath)
+
+  - task: DotNetCoreCLI@2
+    displayName: Build solution (Release)
+    inputs:
+      command: build
+      projects: $(solutionPath)
+      arguments: --configuration Release --no-restore
+
+  - task: Docker@2
+    displayName: Build application image
+    inputs:
+      command: build
+      repository: $(imageName)
+      Dockerfile: src/webapp01/Dockerfile
+      buildContext: src/webapp01
+      tags: |
+        $(imageTag)
