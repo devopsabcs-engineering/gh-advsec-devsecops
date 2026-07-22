@@ -27,8 +27,3 @@ FROM base AS final
 WORKDIR /app
 COPY --from=publish /app/publish .
 ENTRYPOINT ["dotnet", "webapp01.dll"]
-
-FROM base AS ci-final
-WORKDIR /app
-COPY publish/ .
-ENTRYPOINT ["dotnet", "webapp01.dll"]
