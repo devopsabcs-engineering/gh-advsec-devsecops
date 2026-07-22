@@ -234,6 +234,8 @@ jobs:
             Write-Host "Tag $tag already exists on origin; skipping."
             exit 0
           }
+          & git config user.email "github-actions[bot]@users.noreply.github.com"
+          & git config user.name "github-actions[bot]"
           & git tag -a $tag -m "Release $tag"
           & git push origin $tag
           Write-Host "Created and pushed git tag $tag."
