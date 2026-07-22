@@ -174,6 +174,19 @@ Describe 'Governance pipeline contract' {
         ($governanceContract.gates -contains 'post-apply-verification') | Should Be $true
     }
 
+    It 'skips optional wiki publication when its variable macro is unresolved' {
+        $guard = [regex]::Escape('[string]::IsNullOrWhiteSpace($env:PROJECT_WIKI_IDENTIFIER) -or $env:PROJECT_WIKI_IDENTIFIER -match ''^\$\([A-Za-z0-9_.-]+\)$''')
+        ([regex]::Matches($governance, $guard)).Count | Should Be 2
+    }
+
+    It 'targets the authoritative DevSecOps project wiki' {
+        $governance | Should Match '(?m)^\s{2}PROJECT_WIKI_IDENTIFIER:\s+DevSecOps\.wiki\s*$'
+        $governance | Should Match '(?s)resources:\s+repositories:.*?repository:\s+projectWiki.*?name:\s+DevSecOps\.wiki.*?ref:\s+refs/heads/wikiMaster'
+        ([regex]::Matches($governance, 'checkout:\s+projectWiki')).Count | Should Be 2
+        ([regex]::Matches($governance, "'\$\(Pipeline\.Workspace\)/source/scripts/azure-devops/Publish-WikiSummary\.ps1'")).Count | Should Be 2
+        ([regex]::Matches($governance, "-RoutingPath '\$\(Pipeline\.Workspace\)/source/\.azuredevops/pipelines/config/visualization-routing\.json'")).Count | Should Be 2
+    }
+
     It 'does not claim a workflow-parity producer before Phase 10' {
         $governance | Should Not Match 'workflow-parity-report|ReportType workflow-parity'
     }

@@ -10,6 +10,13 @@ schedules:
         - main
     always: true
 
+resources:
+  repositories:
+    - repository: projectWiki
+      type: git
+      name: DevSecOps.wiki
+      ref: refs/heads/wikiMaster
+
 parameters:
   - name: PLATFORM_GAP_ORG_POLICY_DISPOSITION
     type: string
@@ -27,6 +34,7 @@ pool:
   vmImage: ubuntu-latest
 
 variables:
+  PROJECT_WIKI_IDENTIFIER: DevSecOps.wiki
   governanceReportPath: $(Build.ArtifactStagingDirectory)/governance-report
 
 stages:
@@ -36,6 +44,11 @@ stages:
         steps:
           - checkout: self
             clean: true
+            path: source
+          - checkout: projectWiki
+            clean: true
+            fetchDepth: 1
+            path: project-wiki
           - pwsh: |
               $ErrorActionPreference = 'Stop'
               New-Item -ItemType Directory -Path '$(governanceReportPath)' -Force | Out-Null
@@ -63,7 +76,7 @@ stages:
                 return
               }
               if ([string]::IsNullOrWhiteSpace($env:GOVERNANCE_CONFIGURATION_PATH)) { throw 'An approved replacement requires GOVERNANCE_CONFIGURATION_PATH.' }
-              & './scripts/azure-devops/Initialize-PipelineGovernance.ps1' -ConfigurationPath $env:GOVERNANCE_CONFIGURATION_PATH |
+              & '$(Pipeline.Workspace)/source/scripts/azure-devops/Initialize-PipelineGovernance.ps1' -ConfigurationPath $env:GOVERNANCE_CONFIGURATION_PATH |
                 ConvertTo-Json -Depth 100 |
                 Set-Content -LiteralPath '$(governanceReportPath)/dry-run-plan.json' -Encoding utf8NoBOM
             displayName: Record disposition and run replacement dry-run first
@@ -77,15 +90,16 @@ stages:
               artifact: governance-report
           - pwsh: |
               $ErrorActionPreference = 'Stop'
-              if ([string]::IsNullOrWhiteSpace($env:PROJECT_WIKI_IDENTIFIER)) {
+              if ([string]::IsNullOrWhiteSpace($env:PROJECT_WIKI_IDENTIFIER) -or $env:PROJECT_WIKI_IDENTIFIER -match '^\$\([A-Za-z0-9_.-]+\)$') {
                 Write-Host 'Wiki summary skipped: PROJECT_WIKI_IDENTIFIER is not configured.'
                 return
               }
-              & './scripts/azure-devops/Publish-WikiSummary.ps1' `
+              & '$(Pipeline.Workspace)/source/scripts/azure-devops/Publish-WikiSummary.ps1' `
                 -OrganizationUrl $env:SYSTEM_COLLECTIONURI `
                 -Project $env:SYSTEM_TEAMPROJECT `
                 -WikiIdentifier $env:PROJECT_WIKI_IDENTIFIER `
                 -ReportType governance `
+                -RoutingPath '$(Pipeline.Workspace)/source/.azuredevops/pipelines/config/visualization-routing.json' `
                 -MarkdownPath '$(governanceReportPath)/wiki-summary.md'
             displayName: Publish sanitized governance disposition when configured
             condition: succeededOrFailed()
@@ -106,6 +120,11 @@ stages:
               steps:
                 - checkout: self
                   clean: true
+                  path: source
+                - checkout: projectWiki
+                  clean: true
+                  fetchDepth: 1
+                  path: project-wiki
                 - pwsh: |
                     $ErrorActionPreference = 'Stop'
                     $reportPath = '$(Build.ArtifactStagingDirectory)/governance-apply-report'
@@ -119,7 +138,7 @@ stages:
                       if ([string]::IsNullOrWhiteSpace($env:GOVERNANCE_CONFIGURATION_PATH)) { throw 'Approved mutation configuration is absent.' }
                       if ($env:GOVERNANCE_MUTATION_APPROVED -ne 'true') { throw 'Administrator-controlled mutation approval is absent.' }
                       $mutationAttempted = $true
-                      & './scripts/azure-devops/Initialize-PipelineGovernance.ps1' -ConfigurationPath $env:GOVERNANCE_CONFIGURATION_PATH -Apply
+                      & '$(Pipeline.Workspace)/source/scripts/azure-devops/Initialize-PipelineGovernance.ps1' -ConfigurationPath $env:GOVERNANCE_CONFIGURATION_PATH -Apply
                       $applySucceeded = $true
                     }
                     catch {
@@ -128,7 +147,7 @@ stages:
                     if (-not [string]::IsNullOrWhiteSpace($env:GOVERNANCE_CONFIGURATION_PATH)) {
                       try {
                         $rawVerifierPath = Join-Path '$(Agent.TempDirectory)' 'governance-verifier-raw.json'
-                        & './scripts/azure-devops/Test-PipelineGovernance.ps1' `
+                        & '$(Pipeline.Workspace)/source/scripts/azure-devops/Test-PipelineGovernance.ps1' `
                           -ConfigurationPath $env:GOVERNANCE_CONFIGURATION_PATH `
                           -OutputPath $rawVerifierPath | Out-Null
                         $rawVerifier = Get-Content -LiteralPath $rawVerifierPath -Raw | ConvertFrom-Json -Depth 100
@@ -184,15 +203,16 @@ stages:
                     artifact: governance-apply-report
                 - pwsh: |
                     $ErrorActionPreference = 'Stop'
-                    if ([string]::IsNullOrWhiteSpace($env:PROJECT_WIKI_IDENTIFIER)) {
+                    if ([string]::IsNullOrWhiteSpace($env:PROJECT_WIKI_IDENTIFIER) -or $env:PROJECT_WIKI_IDENTIFIER -match '^\$\([A-Za-z0-9_.-]+\)$') {
                       Write-Host 'Wiki summary skipped: PROJECT_WIKI_IDENTIFIER is not configured.'
                       return
                     }
-                    & './scripts/azure-devops/Publish-WikiSummary.ps1' `
+                    & '$(Pipeline.Workspace)/source/scripts/azure-devops/Publish-WikiSummary.ps1' `
                       -OrganizationUrl $env:SYSTEM_COLLECTIONURI `
                       -Project $env:SYSTEM_TEAMPROJECT `
                       -WikiIdentifier $env:PROJECT_WIKI_IDENTIFIER `
                       -ReportType governance `
+                      -RoutingPath '$(Pipeline.Workspace)/source/.azuredevops/pipelines/config/visualization-routing.json' `
                       -MarkdownPath '$(Build.ArtifactStagingDirectory)/governance-apply-report/wiki-summary.md'
                   displayName: Publish sanitized post-apply governance summary when configured
                   condition: always()
