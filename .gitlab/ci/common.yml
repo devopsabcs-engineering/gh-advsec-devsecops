@@ -1,0 +1,53 @@
+.rules:merge-request:
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == $CI_DEFAULT_BRANCH'
+    - when: never
+
+.rules:merge-request-and-main:
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == $CI_DEFAULT_BRANCH'
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+    - when: never
+
+.rules:main-and-manual:
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+    - if: '$CI_PIPELINE_SOURCE == "web"'
+    - when: never
+
+.rules:manual-only:
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "web"'
+    - when: never
+
+# Fleet-native container image handling. The self-hosted Kubernetes executor on
+# cluster-002 is non-privileged (no docker:dind, no Docker socket), so images are built
+# remotely with `az acr build` and scanned by registry reference. Jobs authenticate to
+# Azure with the pipeline's workload-identity federation (OIDC) and never persist a
+# registry secret to disk beyond the ephemeral job pod.
+.acr-scan:
+  image: mcr.microsoft.com/azure-cli:2.71.0
+  id_tokens:
+    AZURE_OIDC_TOKEN:
+      aud: api://AzureADTokenExchange
+  before_script:
+    - az login --service-principal --username "$ACR_CLIENT_ID" --tenant "$ACR_TENANT_ID" --federated-token "$AZURE_OIDC_TOKEN" --allow-no-subscriptions
+    - az account set --subscription "$ACR_SUBSCRIPTION_ID"
+    - export IMAGE_REFERENCE="$ACR_LOGIN_SERVER/$IMAGE_NAME:$CI_COMMIT_SHA"
+    - az acr repository show --name "$ACR_NAME" --image "$IMAGE_NAME:$CI_COMMIT_SHA" >/dev/null 2>&1 || az acr build --registry "$ACR_NAME" --image "$IMAGE_NAME:$CI_COMMIT_SHA" --image "$IMAGE_NAME:latest" --target final --file src/webapp01/Dockerfile src/webapp01
+    - ACR_ACCESS_TOKEN="$(az acr login --name "$ACR_NAME" --expose-token --query accessToken --output tsv)"
+    - mkdir -p "$HOME/.docker"
+    - AUTH_B64="$(printf '%s' "00000000-0000-0000-0000-000000000000:$ACR_ACCESS_TOKEN" | base64 -w0)"
+    - printf '{"auths":{"%s":{"auth":"%s"}}}' "$ACR_LOGIN_SERVER" "$AUTH_B64" > "$HOME/.docker/config.json"
+
+.powershell:
+  image: mcr.microsoft.com/powershell:7.4-debian-12
+
+.dotnet:
+  image: mcr.microsoft.com/dotnet/sdk:9.0-bookworm-slim
+  cache:
+    key: nuget-$CI_PROJECT_ID
+    paths:
+      - .nuget/packages/
+  variables:
+    NUGET_PACKAGES: $CI_PROJECT_DIR/.nuget/packages

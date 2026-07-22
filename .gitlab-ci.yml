@@ -1,0 +1,68 @@
+include:
+  - local: .gitlab/ci/common.yml
+  - local: .gitlab/ci/build.yml
+  - local: .gitlab/ci/security.yml
+  - local: .gitlab/ci/supply-chain.yml
+  - local: .gitlab/ci/deploy.yml
+  - local: .gitlab/ci/governance.yml
+
+workflow:
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+    - if: '$CI_PIPELINE_SOURCE == "schedule"'
+    - if: '$CI_PIPELINE_SOURCE == "web"'
+    - if: '$CI_PIPELINE_SOURCE == "api"'
+    - when: never
+
+stages:
+  - validate
+  - build
+  - test
+  - sast
+  - iac
+  - container-security
+  - supply-chain
+  - dast
+  - package
+  - attest
+  - deploy
+  - governance
+  - pages
+
+default:
+  # Route every job (including scheduled pipelines) to the self-hosted GitLab Runner
+  # fleet on AKS HCI workload-cluster-002. runUntagged is disabled on the fleet, so these
+  # tags are mandatory for jobs to land on the in-cluster Kubernetes executor and avoid
+  # consuming GitLab shared-runner minutes.
+  tags:
+    - aks-hci
+    - cluster-002
+    - linux
+  interruptible: true
+  retry:
+    max: 1
+    when:
+      - runner_system_failure
+
+variables:
+  DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+  DOTNET_NOLOGO: "1"
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: "1"
+  DOCKER_BUILDKIT: "1"
+  IMAGE_NAME: webapp01
+  AZURE_LOCATION: canadacentral
+  INSTANCE_NUMBER: "007"
+  # Self-hosted fleet cannot run privileged docker:dind, so container images are built
+  # remotely with `az acr build` and scanned by registry reference. Every versioned push
+  # also updates the :latest tag (see build/security jobs).
+  ACR_NAME: devopsabcs
+  ACR_LOGIN_SERVER: devopsabcs.azurecr.io
+  GRYPE_IMAGE: anchore/grype:v0.82.0
+  TRIVY_IMAGE: aquasec/trivy:0.72.0
+  TFSEC_IMAGE: aquasec/tfsec:v1.28.14
+  KICS_IMAGE: checkmarx/kics:v2.1.3
+  KUBESEC_IMAGE: kubesec/kubesec:v2.14.2
+  SYFT_IMAGE: anchore/syft:v1.18.1
+  SEMGREP_IMAGE: semgrep/semgrep:1.102.0
+  CHECKOV_IMAGE: bridgecrew/checkov:3.2.346

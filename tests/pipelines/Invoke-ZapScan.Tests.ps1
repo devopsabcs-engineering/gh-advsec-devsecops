@@ -76,6 +76,11 @@ Describe 'Invoke-ZapLifecycle' {
 
         Invoke-ZapLifecycle 'baseline' ('zaproxy/zap-stable@sha256:' + ('a' * 64)) $TestDrive 'https://example.test' $false 'Dockerfile' 18080 2 720
 
+        Assert-MockCalled Invoke-DockerCommand 1 -ParameterFilter {
+            $userIndex = [array]::IndexOf($Arguments, '--user')
+            $entrypointIndex = [array]::IndexOf($Arguments, '--entrypoint')
+            $Arguments[0] -eq 'run' -and $Arguments -contains 'CHOWN' -and $Arguments -contains 'no-new-privileges' -and $userIndex -gt 0 -and $Arguments[$userIndex + 1] -eq '0:0' -and $entrypointIndex -gt 0 -and $Arguments[$entrypointIndex + 1] -eq 'chown' -and $Arguments[-3] -eq '1001:1002' -and $Arguments[-2] -eq '/zap/wrk' -and $Arguments[-1] -eq '/zap/home'
+        }
         Assert-MockCalled Invoke-DockerCommandWithTimeout 1 -ParameterFilter {
             $userIndex = [array]::IndexOf($Arguments, '--user')
             $Arguments[0] -eq 'run' -and $userIndex -gt 0 -and $Arguments[$userIndex + 1] -eq '1001:1002' -and $Arguments -contains 'HOME=/zap/home' -and $Arguments -contains 'JAVA_TOOL_OPTIONS=-Duser.home=/zap/home' -and $TimeoutSeconds -eq 720
@@ -108,10 +113,11 @@ Describe 'Invoke-ZapLifecycle' {
         Test-Path -LiteralPath (Join-Path $TestDrive 'baseline.sarif.json') | Should Be $false
     }
 
-    It 'does not use root or broad chmod workarounds' {
+    It 'limits root to the hardened state initializer and avoids broad chmod workarounds' {
         $scriptContent = Get-Content -LiteralPath (Join-Path $repositoryRoot 'scripts\zap\Invoke-ZapScan.ps1') -Raw
 
-        $scriptContent | Should Not Match '(?i)--user\s+(?:"?0(?::0)?"?|root)'
+        ([regex]::Matches($scriptContent, "'--user', '0:0'")).Count | Should Be 1
+        $scriptContent | Should Match "'--network', 'none'.*'--read-only'.*'--cap-drop', 'ALL'.*'--cap-add', 'CHOWN'.*'no-new-privileges'"
         $scriptContent | Should Not Match '(?i)\bchmod\s+(?:-R\s+)?(?:[0-7]*[2367][0-7]{2}|a\+w|go\+w)\b'
     }
 

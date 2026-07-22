@@ -1,0 +1,171 @@
+# Source parity: .github/workflows/DAST-ZAP-Zed-Attach-Proxy-Checkmarx.yml
+dast:zap:
+  stage: dast
+  image:
+    name: $ZAP_IMAGE
+    entrypoint: [""]
+  needs:
+    - job: ci:dast-app-build
+      artifacts: true
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "schedule" && $SCAN_PROFILE == "weekly-container-dast"'
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+    - when: never
+  timeout: 45 minutes
+  variables:
+    ZAP_TARGET: http://127.0.0.1:8090
+    ASPNETCORE_URLS: http://0.0.0.0:8090
+    DOTNET_SYSTEM_GLOBALIZATION_INVARIANT: "1"
+  script:
+    # The non-privileged cluster-002 executor cannot run docker:dind, so the app runs as a
+    # self-contained process inside the ZAP container and ZAP scans it over loopback. The app
+    # binds 8090 so ZAP's own proxy can use its default 8080. The artifact is owned by root, so
+    # copy it to a zap-writable path before making it executable.
+    - case "$ZAP_IMAGE" in *@sha256:*) ;; *) echo 'ZAP_IMAGE must be a digest-pinned image.'; exit 1;; esac
+    - mkdir -p security-results/zap /tmp/zap-out
+    - cp -r src/webapp01/dast-publish /tmp/dast-app
+    - chmod +x /tmp/dast-app/webapp01
+    - (cd /tmp/dast-app && ./webapp01 >/tmp/dast-app.log 2>&1 &)
+    - bash -c 'for i in $(seq 1 30); do (exec 3<>/dev/tcp/127.0.0.1/8090) 2>/dev/null && exit 0; sleep 2; done; echo "web app did not become ready"; cat /tmp/dast-app.log 2>/dev/null; exit 1'
+    # ZAP cannot write to the image's /zap/wrk mount point under the fleet executor, so run copies
+    # of the shared plans that report into a writable path (the committed plans stay /zap/wrk for ADO).
+    - sed 's#/zap/wrk#/tmp/zap-out#g' "$CI_PROJECT_DIR/.zap/baseline-plan.yaml" > /tmp/baseline-plan.yaml
+    - sed 's#/zap/wrk#/tmp/zap-out#g' "$CI_PROJECT_DIR/.zap/full-plan.yaml" > /tmp/full-plan.yaml
+    - zap.sh -cmd -autorun /tmp/baseline-plan.yaml || true
+    - zap.sh -cmd -autorun /tmp/full-plan.yaml || true
+    - |
+      for scan in baseline full; do
+        for ext in html json sarif; do
+          if [ -f "/tmp/zap-out/$scan.$ext" ]; then cp "/tmp/zap-out/$scan.$ext" "security-results/zap/$scan.$ext";
+          elif [ -f "/tmp/zap-out/$scan.$ext.json" ]; then cp "/tmp/zap-out/$scan.$ext.json" "security-results/zap/$scan.$ext"; fi
+        done
+      done
+    - test -s security-results/zap/baseline.sarif
+  artifacts:
+    when: always
+    expire_in: 30 days
+    paths:
+      - security-results/zap/
+  allow_failure: true
+
+# Source parity: .github/workflows/cicd.yml
+cicd:deploy-infrastructure:
+  extends:
+    - .rules:main-and-manual
+  stage: package
+  image: mcr.microsoft.com/azure-cli:2.71.0
+  id_tokens:
+    AZURE_OIDC_TOKEN:
+      aud: api://AzureADTokenExchange
+  script:
+    - test "$INSTANCE_NUMBER" != "" && echo "$INSTANCE_NUMBER" | grep -Eq '^[0-9]{3}$'
+    - test -n "$AZURE_CLIENT_ID" && test -n "$AZURE_TENANT_ID" && test -n "$AZURE_SUBSCRIPTION_ID"
+    - az login --service-principal --username "$AZURE_CLIENT_ID" --tenant "$AZURE_TENANT_ID" --federated-token "$AZURE_OIDC_TOKEN" --allow-no-subscriptions
+    - az account set --subscription "$AZURE_SUBSCRIPTION_ID"
+    - az deployment sub create --name "deploy-infra-$INSTANCE_NUMBER" --location "$AZURE_LOCATION" --template-file blueprints/gh-aspnet-webapp/bicep/main.bicep --parameters acrName="crdevsecopscldev$INSTANCE_NUMBER" acrSku=Basic appServicePlanName="asp-gh-aspnet-webapp-$INSTANCE_NUMBER" webAppName="app-gh-aspnet-webapp-$INSTANCE_NUMBER" location="$AZURE_LOCATION" resourceGroupName="rg-gh-aspnet-webapp-$INSTANCE_NUMBER" --query properties.outputs --output json > deployment-outputs.json
+    - echo "RESOURCE_GROUP_NAME=$(jq -r .resourceGroupName.value deployment-outputs.json)" > deployment.env
+    - echo "WEB_APP_NAME=$(jq -r .webAppName.value deployment-outputs.json)" >> deployment.env
+    - echo "WEB_APP_URL=$(jq -r .webAppUrl.value deployment-outputs.json)" >> deployment.env
+    - echo "ACR_LOGIN_SERVER=$(jq -r .acrLoginServer.value deployment-outputs.json)" >> deployment.env
+  artifacts:
+    expire_in: 30 days
+    reports:
+      dotenv: deployment.env
+    paths:
+      - deployment-outputs.json
+
+cicd:build-and-push:
+  extends:
+    - .rules:main-and-manual
+  stage: package
+  image: mcr.microsoft.com/azure-cli:2.71.0
+  needs:
+    - job: cicd:deploy-infrastructure
+      artifacts: true
+  id_tokens:
+    AZURE_OIDC_TOKEN:
+      aud: api://AzureADTokenExchange
+  script:
+    - az login --service-principal --username "$AZURE_CLIENT_ID" --tenant "$AZURE_TENANT_ID" --federated-token "$AZURE_OIDC_TOKEN" --allow-no-subscriptions
+    - az account set --subscription "$AZURE_SUBSCRIPTION_ID"
+    - ACR_NAME="${ACR_LOGIN_SERVER%%.*}"
+    - az acr build --registry "$ACR_NAME" --image "$IMAGE_NAME:$CI_COMMIT_SHA" --target final --file src/webapp01/Dockerfile src/webapp01
+    - IMAGE_DIGEST="$(az acr repository show --name "$ACR_NAME" --image "$IMAGE_NAME:$CI_COMMIT_SHA" --query digest --output tsv)"
+    - test -n "$IMAGE_DIGEST"
+    - echo "IMAGE_REFERENCE=$ACR_LOGIN_SERVER/$IMAGE_NAME@$IMAGE_DIGEST" > image.env
+  artifacts:
+    expire_in: 30 days
+    reports:
+      dotenv: image.env
+
+cicd:sign-and-verify-provenance:
+  extends:
+    - .rules:main-and-manual
+  stage: attest
+  image: mcr.microsoft.com/azure-cli:2.71.0
+  needs:
+    - job: cicd:deploy-infrastructure
+      artifacts: true
+    - job: cicd:build-and-push
+      artifacts: true
+    - job: supply-chain:syft-sbom
+      artifacts: true
+  id_tokens:
+    AZURE_OIDC_TOKEN:
+      aud: api://AzureADTokenExchange
+  script:
+    - test -n "$COSIGN_DOWNLOAD_URL" && test -n "$COSIGN_SHA256"
+    - test -n "$SIGNING_KEY_VAULT_NAME" && test -n "$SIGNING_KEY_NAME"
+    - curl --fail --location --silent --show-error "$COSIGN_DOWNLOAD_URL" --output /usr/local/bin/cosign
+    - echo "$COSIGN_SHA256  /usr/local/bin/cosign" | sha256sum --check --strict
+    - chmod +x /usr/local/bin/cosign
+    - az login --service-principal --username "$AZURE_CLIENT_ID" --tenant "$AZURE_TENANT_ID" --federated-token "$AZURE_OIDC_TOKEN" --allow-no-subscriptions
+    - az account set --subscription "$AZURE_SUBSCRIPTION_ID"
+    - ACR_NAME="${ACR_LOGIN_SERVER%%.*}"
+    - ACR_TOKEN="$(az acr login --name "$ACR_NAME" --expose-token --query accessToken --output tsv)"
+    - printf '%s' "$ACR_TOKEN" | cosign login "$ACR_LOGIN_SERVER" --username 00000000-0000-0000-0000-000000000000 --password-stdin
+    - mkdir -p signed-image-evidence
+    - cp supply-chain-results/syft/sbom.spdx.json signed-image-evidence/spdx-sbom.json
+    - IMAGE_DIGEST="${IMAGE_REFERENCE##*@sha256:}"
+    - SBOM_DIGEST="$(sha256sum signed-image-evidence/spdx-sbom.json | cut -d ' ' -f 1)"
+    - jq -n --arg image "$IMAGE_REFERENCE" --arg digest "$IMAGE_DIGEST" --arg source "$CI_PROJECT_URL" --arg revision "$CI_COMMIT_SHA" --arg ref "$CI_COMMIT_REF_NAME" --arg builder "$CI_SERVER_URL/$CI_PROJECT_PATH/-/pipelines" --arg invocation "$CI_PIPELINE_URL" --arg sbom "$SBOM_DIGEST" '{_type:"https://in-toto.io/Statement/v1",subject:[{name:$image,digest:{sha256:$digest}}],predicateType:"https://slsa.dev/provenance/v1",predicate:{buildDefinition:{buildType:"https://gitlab.com/gitlab-org/gitlab-runner",externalParameters:{source:$source,revision:$revision,ref:$ref},internalParameters:{},resolvedDependencies:[{uri:("git+" + $source + "@" + $revision),digest:{gitCommit:$revision}}]},runDetails:{builder:{id:$builder},metadata:{invocationId:$invocation},byproducts:[{name:"spdx-sbom",digest:{sha256:$sbom}}]}}}' > signed-image-evidence/slsa-provenance.json
+    - jq '.predicate' signed-image-evidence/slsa-provenance.json > signed-image-evidence/slsa-predicate.json
+    - printf '%s' "$AZURE_OIDC_TOKEN" > /tmp/azure-federated-token
+    - export AZURE_FEDERATED_TOKEN_FILE=/tmp/azure-federated-token
+    - KEY_URI="azurekms://$SIGNING_KEY_VAULT_NAME.vault.azure.net/$SIGNING_KEY_NAME"
+    - cosign public-key --key "$KEY_URI" > signed-image-evidence/cosign.pub
+    - cosign sign --yes --key "$KEY_URI" "$IMAGE_REFERENCE"
+    - cosign attest --yes --key "$KEY_URI" --type spdxjson --predicate signed-image-evidence/spdx-sbom.json "$IMAGE_REFERENCE"
+    - cosign attest --yes --key "$KEY_URI" --type slsaprovenance1 --predicate signed-image-evidence/slsa-predicate.json "$IMAGE_REFERENCE"
+    - cosign verify --key signed-image-evidence/cosign.pub "$IMAGE_REFERENCE" > signed-image-evidence/signature-verification.json
+    - cosign verify-attestation --key signed-image-evidence/cosign.pub --type spdxjson "$IMAGE_REFERENCE" > signed-image-evidence/sbom-attestation-verification.json
+    - cosign verify-attestation --key signed-image-evidence/cosign.pub --type slsaprovenance1 "$IMAGE_REFERENCE" > signed-image-evidence/provenance-attestation-verification.json
+    - echo "IMAGE_REFERENCE=$IMAGE_REFERENCE" > verified-image.env
+  artifacts:
+    expire_in: 90 days
+    reports:
+      dotenv: verified-image.env
+    paths:
+      - signed-image-evidence/
+
+cicd:deploy-webapp:
+  extends:
+    - .rules:main-and-manual
+  stage: deploy
+  image: mcr.microsoft.com/azure-cli:2.71.0
+  needs:
+    - job: cicd:deploy-infrastructure
+      artifacts: true
+    - job: cicd:sign-and-verify-provenance
+      artifacts: true
+  id_tokens:
+    AZURE_OIDC_TOKEN:
+      aud: api://AzureADTokenExchange
+  environment:
+    name: production
+    url: $WEB_APP_URL
+  script:
+    - az login --service-principal --username "$AZURE_CLIENT_ID" --tenant "$AZURE_TENANT_ID" --federated-token "$AZURE_OIDC_TOKEN" --allow-no-subscriptions
+    - az account set --subscription "$AZURE_SUBSCRIPTION_ID"
+    - az webapp config container set --resource-group "$RESOURCE_GROUP_NAME" --name "$WEB_APP_NAME" --docker-custom-image-name "$IMAGE_REFERENCE"
+    - curl --fail --retry 12 --retry-delay 10 --retry-all-errors "$WEB_APP_URL"

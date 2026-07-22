@@ -7,7 +7,8 @@ param(
     [string]$OrganizationUrl,
     [string]$Project,
     [string]$WikiIdentifier,
-    [string]$AccessToken = $env:SYSTEM_ACCESSTOKEN
+    [string]$AccessToken = $env:SYSTEM_ACCESSTOKEN,
+    [switch]$SkipEntrypoint
 )
 
 Set-StrictMode -Version Latest
@@ -275,13 +276,13 @@ function Publish-DocumentationWikiManifest {
     }
 }
 
-if ($Mode -eq 'Stage') {
+if (-not $SkipEntrypoint -and $Mode -eq 'Stage') {
     if ([string]::IsNullOrWhiteSpace($RepositoryRoot) -or [string]::IsNullOrWhiteSpace($StagingPath)) {
         throw 'RepositoryRoot and StagingPath are required in Stage mode.'
     }
     New-DocumentationWikiStage -RootPath $RepositoryRoot -OutputPath $StagingPath | Out-Null
 }
-elseif ($Mode -eq 'Publish') {
+elseif (-not $SkipEntrypoint -and $Mode -eq 'Publish') {
     if ([string]::IsNullOrWhiteSpace($StagingPath)) { throw 'StagingPath is required in Publish mode.' }
     Publish-DocumentationWikiManifest `
         -ManifestPath (Join-Path $StagingPath 'wiki-documentation-manifest.json') `

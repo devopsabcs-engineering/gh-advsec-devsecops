@@ -58,9 +58,8 @@ function Invoke-HostIdCommand {
 function Get-LinuxHostUser {
     $uid = Invoke-HostIdCommand -Argument '-u'
     $gid = Invoke-HostIdCommand -Argument '-g'
-    if ($uid -notmatch '^[1-9][0-9]*$' -or $gid -notmatch '^[1-9][0-9]*$') {
-        throw 'ZAP requires non-root numeric host UID and GID values.'
-    }
+    if ($uid -notmatch '^[0-9]+$' -or $gid -notmatch '^[0-9]+$') { throw 'ZAP requires numeric host UID and GID values.' }
+    if ($uid -eq '0' -or $gid -eq '0') { return '1000:1000' }
     return "${uid}:${gid}"
 }
 
@@ -76,6 +75,17 @@ function Wait-HttpReady {
         if ($attempt -lt $Attempts) { Wait-RetryDelay -Seconds $RetryDelaySeconds }
     }
     throw "Target did not become ready after $Attempts attempts: $Uri"
+}
+
+function Get-DockerPublishedEndpoint {
+    param([Parameter(Mandatory)][ValidateRange(1, 65535)][int]$Port)
+
+    if ($env:DOCKER_HOST -match '^tcp://') {
+        $daemonUri = [uri]$env:DOCKER_HOST
+        return [pscustomobject]@{ Binding = "0.0.0.0:${Port}:8080"; ReadinessUri = "http://$($daemonUri.Host):$Port" }
+    }
+
+    return [pscustomobject]@{ Binding = "127.0.0.1:${Port}:8080"; ReadinessUri = "http://127.0.0.1:$Port" }
 }
 
 function Test-ZapSarifReport {
@@ -126,10 +136,11 @@ function Invoke-ZapLifecycle {
         if ($StartTarget) {
             $buildContext = Split-Path -Parent $Dockerfile
             if ([string]::IsNullOrWhiteSpace($buildContext)) { $buildContext = '.' }
+            $publishedEndpoint = Get-DockerPublishedEndpoint -Port $PublishedPort
             Invoke-DockerCommand @('build', '--file', $Dockerfile, '--tag', $localImage, $buildContext)
             Invoke-DockerCommand @('network', 'create', $network)
-            Invoke-DockerCommand @('run', '--detach', '--name', $container, '--network', $network, '--network-alias', 'webapp', '--publish', "127.0.0.1:${PublishedPort}:8080", $localImage)
-            Wait-HttpReady -Uri "http://127.0.0.1:$PublishedPort" -Attempts $Attempts | Out-Null
+            Invoke-DockerCommand @('run', '--detach', '--name', $container, '--network', $network, '--network-alias', 'webapp', '--publish', $publishedEndpoint.Binding, $localImage)
+            Wait-HttpReady -Uri $publishedEndpoint.ReadinessUri -Attempts $Attempts | Out-Null
             $TargetUri = 'http://webapp:8080'
         }
         elseif ($Mode -eq 'full') {
@@ -141,9 +152,13 @@ function Invoke-ZapLifecycle {
 
         $mount = "$(Resolve-Path $Output):/zap/wrk:rw"
         $networkArgs = if ($StartTarget) { @('--network', $network) } else { @() }
-        $userArgs = if (Test-LinuxPlatform) { @('--user', (Get-LinuxHostUser)) } else { @() }
+        $scannerUser = if (Test-LinuxPlatform) { Get-LinuxHostUser } else { $null }
+        $userArgs = if ($scannerUser) { @('--user', $scannerUser) } else { @() }
         $plan = "/zap/wrk/$Mode-plan.yaml"
         $stateMount = "$(Resolve-Path $stateDirectory):/zap/home:rw"
+        if ($scannerUser) {
+            Invoke-DockerCommand @('run', '--rm', '--network', 'none', '--read-only', '--cap-drop', 'ALL', '--cap-add', 'CHOWN', '--security-opt', 'no-new-privileges', '--user', '0:0', '--volume', $mount, '--volume', $stateMount, '--entrypoint', 'chown', $Image, $scannerUser, '/zap/wrk', '/zap/home')
+        }
         Invoke-DockerCommandWithTimeout -TimeoutSeconds $ScannerTimeout -Arguments (@('run', '--rm', '--name', $scanner) + $networkArgs + $userArgs + @('--env', 'HOME=/zap/home', '--env', 'JAVA_TOOL_OPTIONS=-Duser.home=/zap/home', '--env', "ZAP_TARGET=$TargetUri", '--volume', $mount, '--volume', $stateMount, $Image, 'zap.sh', '-cmd', '-autorun', $plan))
         $generatedSarif = Join-Path $Output "$Mode.sarif.json"
         if (Test-Path -LiteralPath $generatedSarif -PathType Leaf) {

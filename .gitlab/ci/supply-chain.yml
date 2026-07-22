@@ -1,0 +1,111 @@
+# Source parity: .github/workflows/SCA-Anchore-Syft-SBOM.yml
+supply-chain:syft-sbom:
+  extends:
+    - .acr-scan
+    - .rules:main-and-manual
+  stage: supply-chain
+  script:
+    - mkdir -p supply-chain-results/syft
+    # azure-cli has python but not tar, so fetch/extract the pinned syft binary via Python.
+    - SYFT_VERSION="${SYFT_IMAGE##*:}"
+    - SYFT_URL="https://github.com/anchore/syft/releases/download/${SYFT_VERSION}/syft_${SYFT_VERSION#v}_linux_amd64.tar.gz"
+    - python3 -c "import sys,urllib.request,tarfile,io; d=urllib.request.urlopen(sys.argv[1]).read(); tarfile.open(fileobj=io.BytesIO(d),mode='r:gz').extract('syft','/usr/local/bin')" "$SYFT_URL"
+    - chmod +x /usr/local/bin/syft
+    - syft "$IMAGE_REFERENCE" --output spdx-json > supply-chain-results/syft/sbom.spdx.json
+    - syft "$IMAGE_REFERENCE" --output cyclonedx-json > supply-chain-results/syft/sbom.cyclonedx.json
+  artifacts:
+    expire_in: 30 days
+    paths:
+      - supply-chain-results/syft/
+
+# Source parity: .github/workflows/SCA-GitHubAdvancedSecurity-DependencyReview.yml
+supply-chain:dependency-review:
+  extends:
+    - .dotnet
+    - .rules:merge-request
+  stage: supply-chain
+  before_script:
+    - dotnet tool install --global PowerShell --version 7.4.6
+    - export PATH="$PATH:$HOME/.dotnet/tools"
+  script:
+    - git fetch --no-tags origin "$CI_MERGE_REQUEST_TARGET_BRANCH_NAME"
+    - git worktree add --detach "$CI_PROJECT_DIR/../dependency-base" FETCH_HEAD
+    - dotnet restore "$CI_PROJECT_DIR/../dependency-base/src/webapp01/webapp01.csproj" --force-evaluate
+    - dotnet restore src/webapp01/webapp01.csproj --force-evaluate
+    - mkdir -p supply-chain-results/dependency-review
+    - pwsh -NoProfile -File scripts/dependencies/Get-ResolvedNuGetGraph.ps1 -AssetsPath "$CI_PROJECT_DIR/../dependency-base/src/webapp01/obj/project.assets.json" -OutputPath supply-chain-results/dependency-review/base-graph.json
+    - pwsh -NoProfile -File scripts/dependencies/Get-ResolvedNuGetGraph.ps1 -AssetsPath src/webapp01/obj/project.assets.json -OutputPath supply-chain-results/dependency-review/head-graph.json
+    - pwsh -NoProfile -Command ". ./scripts/dependencies/Test-DependencyChanges.ps1; \$base = @(Get-Content supply-chain-results/dependency-review/base-graph.json -Raw | ConvertFrom-Json -Depth 100); \$head = @(Get-Content supply-chain-results/dependency-review/head-graph.json -Raw | ConvertFrom-Json -Depth 100); \$metadata = @{}; foreach (\$package in @(Get-ChangedNuGetPackage -BaseGraph \$base -HeadGraph \$head)) { \$metadata[\"\$(\$package.id)/\$(\$package.version)\"] = Get-NuGetRegistrationRecord -PackageId \$package.id -Version \$package.version }; \$result = Invoke-DependencyAdmission -BaseGraph \$base -HeadGraph \$head -Metadata \$metadata; \$result | ConvertTo-Json -Depth 20 | Set-Content supply-chain-results/dependency-review/dependency-admission.json; ConvertTo-DependencyMarkdown -Result \$result | Set-Content supply-chain-results/dependency-review/dependency-admission.md; if (-not \$result.passed) { throw 'Changed dependency admission failed.' }"
+  artifacts:
+    when: always
+    expire_in: 30 days
+    paths:
+      - supply-chain-results/dependency-review/
+  after_script:
+    - git worktree remove --force "$CI_PROJECT_DIR/../dependency-base" || true
+    - git worktree prune
+
+# Source parity: .github/workflows/SCA-Microsoft-SBOM.yml
+supply-chain:microsoft-sbom:
+  extends:
+    - .dotnet
+    - .rules:main-and-manual
+  stage: supply-chain
+  script:
+    - test -n "$SBOM_TOOL_VERSION" && test -n "$SBOM_TOOL_DOWNLOAD_URL" && test -n "$SBOM_TOOL_SHA256"
+    - dotnet restore gh-aspnet-webapp-01.sln
+    - dotnet publish src/webapp01/webapp01.csproj --configuration Release --no-restore --output sbom-build /p:UseAppHost=false
+    - curl --fail --location --silent --show-error "$SBOM_TOOL_DOWNLOAD_URL" --output /tmp/sbom-tool
+    - echo "$SBOM_TOOL_SHA256  /tmp/sbom-tool" | sha256sum --check --strict
+    - chmod +x /tmp/sbom-tool
+    - /tmp/sbom-tool Generate -b sbom-build -bc "$CI_PROJECT_DIR" -pn webapp01 -pv "$CI_COMMIT_SHA" -ps "$CI_PROJECT_PATH" -nsb "$CI_PIPELINE_URL"
+  artifacts:
+    expire_in: 30 days
+    paths:
+      - sbom-build/_manifest/
+
+# Source parity: .github/workflows/SCA-OpenSSF-Scorecard.yml
+supply-chain:openssf-scorecard-disposition:
+  extends:
+    - .powershell
+  stage: supply-chain
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "schedule" && $SCAN_PROFILE == "openssf-scorecard"'
+    - if: '$CI_PIPELINE_SOURCE == "web"'
+      when: manual
+      allow_failure: true
+    - when: never
+  script:
+    - |
+      pwsh -NoProfile -Command - <<'PWSH'
+      New-Item -ItemType Directory -Path supply-chain-results/scorecard -Force | Out-Null
+      [ordered]@{
+        platformGap = 'public-openssf-scorecard-publication'
+        disposition = if ($env:SCORECARD_GITHUB_MIRROR) { 'retained-on-github-mirror' } else { 'decision-required' }
+        gitLabProject = $env:CI_PROJECT_URL
+        githubMirror = $env:SCORECARD_GITHUB_MIRROR
+        reason = 'OpenSSF Scorecard currently evaluates GitHub-hosted repositories; GitLab has no equivalent publisher API.'
+      } | ConvertTo-Json | Set-Content supply-chain-results/scorecard/disposition.json
+      PWSH
+  artifacts:
+    expire_in: 30 days
+    paths:
+      - supply-chain-results/scorecard/
+
+# Source parity: .github/workflows/security-agent-workflow.yml
+security-agent:assessment:
+  extends:
+    - .rules:manual-only
+  stage: sast
+  image: node:22.14.0-bookworm-slim
+  timeout: 15 minutes
+  script:
+    - test -n "$COPILOT_GITHUB_TOKEN" && test -n "$COPILOT_CLI_VERSION"
+    - npm install --global --ignore-scripts --save-exact "@github/copilot@$COPILOT_CLI_VERSION"
+    - mkdir -p security-reports
+    - copilot --prompt "Follow .github/agents/security-agent.agent.md and assess this repository. Write only the final Markdown report." > security-reports/security-assessment-report.md
+    - test -s security-reports/security-assessment-report.md
+  artifacts:
+    expire_in: 30 days
+    paths:
+      - security-reports/

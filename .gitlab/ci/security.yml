@@ -1,0 +1,303 @@
+.security-artifacts:
+  artifacts:
+    when: always
+    expire_in: 30 days
+    paths:
+      - security-results/
+
+# Source parity: .github/workflows/SAST-GitHubAdvancedSecurity-CodeQL.yml
+sast:semgrep-codeql-replacement:
+  stage: sast
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "schedule" && $SCAN_PROFILE == "sast-codeql"'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == $CI_DEFAULT_BRANCH'
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+    - when: never
+  image:
+    name: $SEMGREP_IMAGE
+    entrypoint: [""]
+  variables:
+    SEMGREP_RULES: p/default
+  script:
+    - mkdir -p security-results/semgrep
+    - semgrep scan --config "$SEMGREP_RULES" --gitlab-sast --output security-results/semgrep/gl-sast-report.json .
+    - semgrep scan --config "$SEMGREP_RULES" --sarif --output security-results/semgrep/semgrep.sarif .
+  artifacts:
+    when: always
+    expire_in: 30 days
+    reports:
+      sast: security-results/semgrep/gl-sast-report.json
+    paths:
+      - security-results/semgrep/
+  allow_failure: true
+
+# Source parity: .github/workflows/SAST-ESLint.yml
+sast:eslint:
+  stage: sast
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "schedule" && $SCAN_PROFILE == "sast-eslint"'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == $CI_DEFAULT_BRANCH'
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+    - when: never
+  image: node:22.14.0-bookworm-slim
+  variables:
+    npm_config_cache: $CI_PROJECT_DIR/.npm
+    SARIF_ESLINT_IGNORE_SUPPRESSED: "true"
+  cache:
+    key: eslint-$CI_PROJECT_ID
+    paths:
+      - .npm/
+  script:
+    - mkdir -p security-results/eslint
+    - npm install --no-save --ignore-scripts --save-exact eslint@8.10.0 @microsoft/eslint-formatter-sarif@3.1.0
+    - (cd src/webapp01 && npx eslint . --config .eslintrc.js --ext .js,.jsx,.ts,.tsx --format @microsoft/eslint-formatter-sarif --output-file ../../security-results/eslint/eslint.sarif) || true
+    - test -s security-results/eslint/eslint.sarif
+  artifacts:
+    when: always
+    expire_in: 30 days
+    paths:
+      - security-results/eslint/
+
+# Source parity: .github/workflows/SAST-Kubesec.yml
+sast:kubesec:
+  extends:
+    - .powershell
+  stage: sast
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "schedule" && $SCAN_PROFILE == "sast-kubesec"'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == $CI_DEFAULT_BRANCH'
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+    - when: never
+  script:
+    - |
+      pwsh -NoProfile -Command - <<'PWSH'
+      # The cluster-002 executor is non-privileged, so kubesec runs from its pinned
+      # release binary instead of docker run. The version is derived from KUBESEC_IMAGE
+      # to keep a single immutable source of truth.
+      $version = ($env:KUBESEC_IMAGE -split ':')[-1]
+      New-Item -ItemType Directory -Path security-results/kubesec -Force | Out-Null
+      $archive = '/tmp/kubesec.tar.gz'
+      Invoke-WebRequest -Uri "https://github.com/controlplaneio/kubesec/releases/download/$version/kubesec_linux_amd64.tar.gz" -OutFile $archive
+      tar -xzf $archive -C /usr/local/bin kubesec
+      $reports = [System.Collections.Generic.List[object]]::new()
+      foreach ($manifest in @('manifests/critical-double.yaml', 'manifests/score-5-pod-serviceaccount.yaml')) {
+        $output = & kubesec scan $manifest
+        if ($LASTEXITCODE -notin @(0, 2)) { throw "Kubesec failed for $manifest." }
+        foreach ($entry in @($output | ConvertFrom-Json -Depth 100)) {
+          $entry.FileName = $manifest
+          $reports.Add($entry)
+        }
+      }
+      $reports | ConvertTo-Json -Depth 100 | Set-Content security-results/kubesec/kubesec.json
+      ./scripts/sarif/Convert-KubesecToSarif.ps1 -InputPath security-results/kubesec/kubesec.json -OutputPath security-results/kubesec/kubesec.sarif
+      PWSH
+  artifacts:
+    when: always
+    expire_in: 30 days
+    paths:
+      - security-results/kubesec/
+  allow_failure: true
+
+# Source parity: .github/workflows/IACS-AquaSecurity-tfsec.yml
+iac:tfsec:
+  stage: iac
+  image:
+    name: $TFSEC_IMAGE
+    entrypoint: [""]
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "schedule" && $SCAN_PROFILE == "weekly-iac"'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == $CI_DEFAULT_BRANCH'
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+    - when: never
+  script:
+    - mkdir -p security-results/tfsec
+    - tfsec ./terraform --format sarif --out security-results/tfsec/tfsec.sarif || test "$?" = "1"
+    - test -s security-results/tfsec/tfsec.sarif
+  artifacts:
+    when: always
+    expire_in: 30 days
+    paths:
+      - security-results/tfsec/
+  allow_failure: true
+
+# Source parity: .github/workflows/IACS-Checkmarx-kics.yml
+iac:kics:
+  stage: iac
+  image:
+    name: $KICS_IMAGE
+    entrypoint: [""]
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "schedule" && $SCAN_PROFILE == "weekly-iac"'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == $CI_DEFAULT_BRANCH'
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+    - when: never
+  script:
+    - mkdir -p security-results/kics
+    - kics scan --path terraform --queries-path /app/bin/assets/queries --output-path security-results/kics --report-formats json,sarif || test "$?" = "50"
+  artifacts:
+    when: always
+    expire_in: 30 days
+    paths:
+      - security-results/kics/
+  allow_failure: true
+
+# Source parity: .github/workflows/IACS-Microsoft-Security-DevOps.yml
+iac:msdo-replacement:
+  stage: iac
+  image:
+    name: $CHECKOV_IMAGE
+    entrypoint: [""]
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "schedule" && $SCAN_PROFILE == "weekly-iac"'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == $CI_DEFAULT_BRANCH'
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+    - when: never
+  script:
+    - mkdir -p security-results/checkov-iac
+    - checkov --directory . --framework terraform bicep kubernetes --output sarif --output-file-path security-results/checkov-iac || true
+  artifacts:
+    when: always
+    expire_in: 30 days
+    paths:
+      - security-results/checkov-iac/
+  allow_failure: true
+
+# Source parity: .github/workflows/MSDO-Microsoft-Security-DevOps.yml
+security:msdo-replacement:
+  stage: iac
+  image:
+    name: $CHECKOV_IMAGE
+    entrypoint: [""]
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "schedule" && $SCAN_PROFILE == "weekly-msdo"'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == $CI_DEFAULT_BRANCH'
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+    - when: never
+  script:
+    - mkdir -p security-results/msdo-replacement
+    - checkov --directory . --framework all --output sarif --output-file-path security-results/msdo-replacement || true
+    # Trivy filesystem scan runs from its pinned release binary (version derived from
+    # TRIVY_IMAGE) because the cluster-002 executor cannot run a Docker daemon. The Checkov
+    # image ships neither curl nor wget, so Python stdlib downloads and extracts the binary.
+    - TRIVY_VERSION="${TRIVY_IMAGE##*:}"
+    - TRIVY_URL="https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz"
+    - python3 -c "import sys,urllib.request,tarfile,io; d=urllib.request.urlopen(sys.argv[1]).read(); tarfile.open(fileobj=io.BytesIO(d),mode='r:gz').extract('trivy','/usr/local/bin')" "$TRIVY_URL"
+    - chmod +x /usr/local/bin/trivy
+    - trivy filesystem --format sarif --output security-results/msdo-replacement/trivy-filesystem.sarif . || true
+  artifacts:
+    when: always
+    expire_in: 30 days
+    paths:
+      - security-results/msdo-replacement/
+  allow_failure: true
+
+# Source parity: .github/workflows/CIS-Anchore-Grype.yml
+container:grype:
+  extends:
+    - .acr-scan
+  stage: container-security
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "schedule" && $SCAN_PROFILE == "weekly-container-dast"'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == $CI_DEFAULT_BRANCH'
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+    - when: never
+  script:
+    - mkdir -p security-results/grype
+    # azure-cli has python but not tar, so fetch/extract the pinned grype binary via Python.
+    - GRYPE_VERSION="${GRYPE_IMAGE##*:}"
+    - GRYPE_URL="https://github.com/anchore/grype/releases/download/${GRYPE_VERSION}/grype_${GRYPE_VERSION#v}_linux_amd64.tar.gz"
+    - python3 -c "import sys,urllib.request,tarfile,io; d=urllib.request.urlopen(sys.argv[1]).read(); tarfile.open(fileobj=io.BytesIO(d),mode='r:gz').extract('grype','/usr/local/bin')" "$GRYPE_URL"
+    - chmod +x /usr/local/bin/grype
+    - grype "$IMAGE_REFERENCE" --output sarif > security-results/grype/grype.sarif
+  artifacts:
+    when: always
+    expire_in: 30 days
+    paths:
+      - security-results/grype/
+  allow_failure: true
+
+# Source parity: .github/workflows/CIS-Trivy-AquaSecurity.yml
+container:trivy:
+  extends:
+    - .acr-scan
+  stage: container-security
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "schedule" && $SCAN_PROFILE == "weekly-container-dast"'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == $CI_DEFAULT_BRANCH'
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+    - when: never
+  script:
+    - mkdir -p security-results/trivy
+    # azure-cli has python but not tar, so fetch/extract the pinned trivy binary via Python.
+    - TRIVY_VERSION="${TRIVY_IMAGE##*:}"
+    - TRIVY_URL="https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz"
+    - python3 -c "import sys,urllib.request,tarfile,io; d=urllib.request.urlopen(sys.argv[1]).read(); tarfile.open(fileobj=io.BytesIO(d),mode='r:gz').extract('trivy','/usr/local/bin')" "$TRIVY_URL"
+    - chmod +x /usr/local/bin/trivy
+    - curl -sfL "https://raw.githubusercontent.com/aquasecurity/trivy/v${TRIVY_VERSION}/contrib/gitlab.tpl" -o /tmp/gitlab.tpl
+    - trivy image --format template --template "@/tmp/gitlab.tpl" --output security-results/trivy/gl-container-scanning-report.json "$IMAGE_REFERENCE"
+    - trivy image --format sarif --output security-results/trivy/trivy.sarif "$IMAGE_REFERENCE"
+  artifacts:
+    when: always
+    expire_in: 30 days
+    reports:
+      container_scanning: security-results/trivy/gl-container-scanning-report.json
+    paths:
+      - security-results/trivy/
+  allow_failure: true
+
+# GitLab-native aggregation (no GitHub/Azure DevOps port needed): GitLab's Vulnerability
+# Report / Security Dashboard, which group findings by scanner the way GitHub Advanced
+# Security does, are Ultimate-tier only. This project stays on a non-Ultimate plan, so this
+# job reproduces that "tool breakdown" view: it consolidates every scanner's SARIF into a
+# per-tool Markdown/HTML report (published to GitLab Pages) and emits a Code Quality report,
+# which is available on every tier and surfaces source findings inline in the merge request.
+security:summary:
+  extends:
+    - .powershell
+  stage: governance
+  needs:
+    - job: sast:semgrep-codeql-replacement
+      artifacts: true
+      optional: true
+    - job: sast:eslint
+      artifacts: true
+      optional: true
+    - job: sast:kubesec
+      artifacts: true
+      optional: true
+    - job: iac:tfsec
+      artifacts: true
+      optional: true
+    - job: iac:kics
+      artifacts: true
+      optional: true
+    - job: iac:msdo-replacement
+      artifacts: true
+      optional: true
+    - job: security:msdo-replacement
+      artifacts: true
+      optional: true
+    - job: container:grype
+      artifacts: true
+      optional: true
+    - job: container:trivy
+      artifacts: true
+      optional: true
+    - job: dast:zap
+      artifacts: true
+      optional: true
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == $CI_DEFAULT_BRANCH'
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+    - if: '$CI_PIPELINE_SOURCE == "schedule"'
+    - when: never
+  script:
+    - pwsh -NoProfile -File scripts/sarif/New-SecuritySummary.ps1 -InputRoot security-results -OutputDirectory security-results/summary -RepositoryRoot "$CI_PROJECT_DIR"
+  artifacts:
+    when: always
+    expire_in: 30 days
+    reports:
+      codequality: security-results/summary/gl-code-quality-report.json
+    paths:
+      - security-results/summary/
+  allow_failure: true

@@ -29,7 +29,7 @@ Describe 'DAST ZAP pipeline contract' {
     It 'uses local port 8080 with readiness, timeout, and cleanup in the helper' {
         $helper = Get-Content -LiteralPath (Join-Path $repositoryRoot 'scripts\zap\Invoke-ZapScan.ps1') -Raw
         $dast | Should Match 'default:\s+8080'
-        $helper | Should Match '127\.0\.0\.1:\$\{PublishedPort\}:8080'
+        $helper | Should Match '127\.0\.0\.1:\$\{Port\}:8080'
         $helper | Should Match '\$buildContext = Split-Path -Parent \$Dockerfile'
         $helper.Contains("'--tag', `$localImage, `$buildContext") | Should Be $true
         $helper | Should Match 'Wait-HttpReady'
