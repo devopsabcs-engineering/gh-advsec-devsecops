@@ -41,6 +41,24 @@ env:
   DOTNET_VERSION: "9.0.x"                       # set this to the dot net version to use   
 
 jobs:
+  version:
+    name: Compute semantic version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.compute.outputs.version }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0 # full history + tags required for deterministic version computation
+
+      - name: Compute build version
+        id: compute
+        shell: pwsh
+        run: |
+          $version = & ./scripts/version/Get-BuildVersion.ps1
+          Write-Host "Computed semantic version: $version"
+          echo "version=$version" >> $env:GITHUB_OUTPUT
+
   deploy-infrastructure:
     name: Deploy Azure Infrastructure
     runs-on: ubuntu-latest
@@ -149,11 +167,12 @@ jobs:
 
   cicd:
     name: Build and Deploy to Azure Web App
-    needs: deploy-infrastructure
+    needs: [version, deploy-infrastructure]
     runs-on: ubuntu-latest
     env:
       AZURE_ACR_NAME: ${{ needs.deploy-infrastructure.outputs.acr_name }}
       AZURE_WEBAPP_NAME: ${{ needs.deploy-infrastructure.outputs.webapp_name }}
+      APP_VERSION: ${{ needs.version.outputs.version }}
     steps:
       # Checkout the repo
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -191,16 +210,33 @@ jobs:
 
       - name: Build and Push Docker Image
         run: |
-          docker build ./src/webapp01 --file ./src/webapp01/Dockerfile -t ${{ env.AZURE_ACR_NAME }}.azurecr.io/webapp01:${{ github.sha }}
-          docker tag ${{ env.AZURE_ACR_NAME }}.azurecr.io/webapp01:${{ github.sha }} ${{ env.AZURE_ACR_NAME }}.azurecr.io/webapp01:latest
+          docker build ./src/webapp01 --file ./src/webapp01/Dockerfile \
+            --build-arg APP_VERSION=${{ env.APP_VERSION }} \
+            -t ${{ env.AZURE_ACR_NAME }}.azurecr.io/webapp01:${{ github.sha }} \
+            -t ${{ env.AZURE_ACR_NAME }}.azurecr.io/webapp01:v${{ env.APP_VERSION }} \
+            -t ${{ env.AZURE_ACR_NAME }}.azurecr.io/webapp01:latest
           docker push ${{ env.AZURE_ACR_NAME }}.azurecr.io/webapp01:${{ github.sha }}
+          docker push ${{ env.AZURE_ACR_NAME }}.azurecr.io/webapp01:v${{ env.APP_VERSION }}
           docker push ${{ env.AZURE_ACR_NAME }}.azurecr.io/webapp01:latest
 
       - name: Azure Web Apps Deploy
         uses: azure/webapps-deploy@8db8b8d14f21b245e6706fd0607244e354884697 # v3
         with:
           app-name: ${{ env.AZURE_WEBAPP_NAME }}
-          images: "${{ env.AZURE_ACR_NAME }}.azurecr.io/webapp01:${{ github.sha }}"
+          images: "${{ env.AZURE_ACR_NAME }}.azurecr.io/webapp01:v${{ env.APP_VERSION }}"
+
+      - name: Create and push semantic version git tag
+        shell: pwsh
+        run: |
+          $tag = "v${{ env.APP_VERSION }}"
+          $remote = & git ls-remote --tags origin "refs/tags/$tag"
+          if (-not [string]::IsNullOrWhiteSpace($remote)) {
+            Write-Host "Tag $tag already exists on origin; skipping."
+            exit 0
+          }
+          & git tag -a $tag -m "Release $tag"
+          & git push origin $tag
+          Write-Host "Created and pushed git tag $tag."
 
       - name: Add deployment link to summary
         run: |
@@ -211,7 +247,8 @@ jobs:
           echo "| Resource | Value |" >> $GITHUB_STEP_SUMMARY
           echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
           echo "| URL | ${{ needs.deploy-infrastructure.outputs.webapp_url }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Image | \`${{ env.AZURE_ACR_NAME }}.azurecr.io/webapp01:${{ github.sha }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Version | \`v${{ env.APP_VERSION }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Image | \`${{ env.AZURE_ACR_NAME }}.azurecr.io/webapp01:v${{ env.APP_VERSION }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| Commit | \`${{ github.sha }}\` |" >> $GITHUB_STEP_SUMMARY
 
       - name: logout
@@ -221,10 +258,11 @@ jobs:
   # https://docs.github.com/en/actions/security-for-github-actions/using-artifact-attestations/using-artifact-attestations-and-reusable-workflows-to-achieve-slsa-v1-build-level-3
   container-build-publish:
     name: Build and Publish Container Image
+    needs: version
     uses: devopsabcs-engineering/devsecops-reusable-workflows/.github/workflows/container.yml@main
     with:
       # This is used for tagging the container image
-      version: v1.0.0
+      version: v${{ needs.version.outputs.version }}
       container-file: ./src/webapp01/Dockerfile
       container-context: ./src/webapp01
       container-name: "${{ github.repository }}/webapp01"

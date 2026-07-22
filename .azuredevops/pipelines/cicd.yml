@@ -156,6 +156,8 @@ stages:
         steps:
           - checkout: self
             clean: true
+            fetchDepth: 0
+            fetchTags: true
           - task: UseDotNet@2
             displayName: Use .NET SDK 9.0.x
             inputs:
@@ -217,15 +219,22 @@ stages:
                 $acrLoginServer = '$(acrLoginServer)'
                 if ([string]::IsNullOrWhiteSpace($acrLoginServer)) { throw 'The suffixed ACR login-server output is absent.' }
                 $acrName = $acrLoginServer.Split('.')[0]
+                $version = & ./scripts/version/Get-BuildVersion.ps1
+                if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($version)) { throw 'Semantic version computation failed.' }
+                Write-Host "##vso[task.setvariable variable=buildVersion;isOutput=true]$version"
+                Write-Host "Computed semantic version: $version"
                 $commitTag = "$acrLoginServer/$(imageRepository):$(Build.SourceVersion)"
                 $latestTag = "$acrLoginServer/$(imageRepository):latest"
+                $versionTag = "$acrLoginServer/$(imageRepository):v$version"
 
                 az acr login --name $acrName
                 if ($LASTEXITCODE -ne 0) { throw 'Workload-identity ACR login failed.' }
-                docker build src/webapp01 --file src/webapp01/Dockerfile --tag $commitTag --tag $latestTag
+                docker build src/webapp01 --file src/webapp01/Dockerfile --build-arg APP_VERSION=$version --tag $commitTag --tag $versionTag --tag $latestTag
                 if ($LASTEXITCODE -ne 0) { throw 'Container image build failed.' }
                 docker push $commitTag
                 if ($LASTEXITCODE -ne 0) { throw 'Commit image push failed.' }
+                docker push $versionTag
+                if ($LASTEXITCODE -ne 0) { throw 'Version image push failed.' }
                 docker push $latestTag
                 if ($LASTEXITCODE -ne 0) { throw 'Convenience image push failed.' }
 
@@ -330,6 +339,7 @@ stages:
       acrLoginServer: $[ stageDependencies.Provision.Deploy.outputs['deployInfrastructure.acrLoginServer'] ]
       imageReference: $[ stageDependencies.BuildEvidence.BuildSignVerify.outputs['createEvidence.imageReference'] ]
       sbomDigest: $[ stageDependencies.BuildEvidence.BuildSignVerify.outputs['createEvidence.sbomDigest'] ]
+      buildVersion: $[ stageDependencies.BuildEvidence.BuildSignVerify.outputs['createEvidence.buildVersion'] ]
     jobs:
       - deployment: DeployWebApp
         displayName: Deploy Web App by digest
@@ -340,6 +350,7 @@ stages:
               steps:
                 - checkout: self
                   clean: true
+                  persistCredentials: true
                 - task: DownloadPipelineArtifact@2
                   displayName: Download signed image evidence
                   inputs:
@@ -417,3 +428,24 @@ stages:
                     Write-Host "Stable Web App endpoint: $(webAppUrl)"
                     Write-Host "Signed evidence artifact: signed-image-evidence"
                   displayName: Emit deployment summary
+                - pwsh: |
+                    $ErrorActionPreference = 'Stop'
+                    $version = '$(buildVersion)'
+                    if ([string]::IsNullOrWhiteSpace($version)) { throw 'Semantic version output is absent.' }
+                    $tag = "v$version"
+                    $existing = git ls-remote --tags origin "refs/tags/$tag"
+                    if (-not [string]::IsNullOrWhiteSpace($existing)) {
+                      Write-Host "Tag $tag already exists on origin; skipping."
+                      return
+                    }
+                    git config user.email 'build-service@devopsabcs.com'
+                    git config user.name 'Azure DevOps Build Service'
+                    git tag -a $tag -m "Release $tag"
+                    git push origin $tag
+                    if ($LASTEXITCODE -ne 0) {
+                      Write-Host "##vso[task.logissue type=warning]Unable to push git tag $tag. Grant the build service 'Contribute' permission to enable version tagging."
+                    }
+                    else {
+                      Write-Host "Created and pushed git tag $tag."
+                    }
+                  displayName: Create and push semantic version git tag

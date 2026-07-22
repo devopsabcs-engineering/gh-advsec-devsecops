@@ -82,6 +82,8 @@ cicd:build-and-push:
   needs:
     - job: cicd:deploy-infrastructure
       artifacts: true
+  variables:
+    GIT_DEPTH: 0 # full history + tags for deterministic version computation
   id_tokens:
     AZURE_OIDC_TOKEN:
       aud: api://AzureADTokenExchange
@@ -89,10 +91,23 @@ cicd:build-and-push:
     - az login --service-principal --username "$AZURE_CLIENT_ID" --tenant "$AZURE_TENANT_ID" --federated-token "$AZURE_OIDC_TOKEN" --allow-no-subscriptions
     - az account set --subscription "$AZURE_SUBSCRIPTION_ID"
     - ACR_NAME="${ACR_LOGIN_SERVER%%.*}"
-    - az acr build --registry "$ACR_NAME" --image "$IMAGE_NAME:$CI_COMMIT_SHA" --target final --file src/webapp01/Dockerfile src/webapp01
+    # Semantic version, mirroring scripts/version/Get-BuildVersion.ps1 (1.0.0, patch++ per tagged
+    # commit). Computed inline because the fleet runner image provides git but not PowerShell.
+    - |
+      BUILD_VERSION="1.0.0"
+      if command -v git >/dev/null 2>&1; then
+        ON_HEAD=$(git tag --points-at HEAD --list 'v1.0.*' 2>/dev/null | sed -n 's/^v1\.0\.\([0-9][0-9]*\)$/\1/p' | sort -n | tail -1)
+        HIGHEST=$(git tag --list 'v1.0.*' 2>/dev/null | sed -n 's/^v1\.0\.\([0-9][0-9]*\)$/\1/p' | sort -n | tail -1)
+        if [ -n "$ON_HEAD" ]; then BUILD_VERSION="1.0.$ON_HEAD";
+        elif [ -n "$HIGHEST" ]; then BUILD_VERSION="1.0.$((HIGHEST + 1))";
+        else BUILD_VERSION="1.0.0"; fi
+      fi
+      echo "Computed semantic version: $BUILD_VERSION"
+    - az acr build --registry "$ACR_NAME" --image "$IMAGE_NAME:$CI_COMMIT_SHA" --image "$IMAGE_NAME:v$BUILD_VERSION" --build-arg APP_VERSION="$BUILD_VERSION" --target final --file src/webapp01/Dockerfile src/webapp01
     - IMAGE_DIGEST="$(az acr repository show --name "$ACR_NAME" --image "$IMAGE_NAME:$CI_COMMIT_SHA" --query digest --output tsv)"
     - test -n "$IMAGE_DIGEST"
     - echo "IMAGE_REFERENCE=$ACR_LOGIN_SERVER/$IMAGE_NAME@$IMAGE_DIGEST" > image.env
+    - echo "BUILD_VERSION=$BUILD_VERSION" >> image.env
   artifacts:
     expire_in: 30 days
     reports:
@@ -169,3 +184,37 @@ cicd:deploy-webapp:
     - az account set --subscription "$AZURE_SUBSCRIPTION_ID"
     - az webapp config container set --resource-group "$RESOURCE_GROUP_NAME" --name "$WEB_APP_NAME" --docker-custom-image-name "$IMAGE_REFERENCE"
     - curl --fail --retry 12 --retry-delay 10 --retry-all-errors "$WEB_APP_URL"
+
+# Creates the semantic version git tag in source control (parity with GitHub/ADO).
+# Non-fatal: requires a GITLAB_TAG_TOKEN (project access token with write_repository).
+release:tag:
+  extends:
+    - .rules:main-and-manual
+  stage: deploy
+  image: mcr.microsoft.com/azure-cli:2.71.0
+  needs:
+    - job: cicd:build-and-push
+      artifacts: true
+    - job: cicd:deploy-webapp
+  variables:
+    GIT_DEPTH: 0
+  allow_failure: true
+  script:
+    - test -n "$BUILD_VERSION"
+    - git config --global --add safe.directory "$CI_PROJECT_DIR"
+    - |
+      if git ls-remote --tags origin "refs/tags/v$BUILD_VERSION" | grep -q "v$BUILD_VERSION"; then
+        echo "Tag v$BUILD_VERSION already exists on origin; skipping."
+        exit 0
+      fi
+    - |
+      if [ -z "$GITLAB_TAG_TOKEN" ]; then
+        echo "GITLAB_TAG_TOKEN is not set; cannot push tag v$BUILD_VERSION. Define a project access token with write_repository to enable version tagging."
+        exit 0
+      fi
+    - git config user.email "gitlab-ci@devopsabcs.com"
+    - git config user.name "GitLab CI"
+    - git remote set-url origin "https://oauth2:${GITLAB_TAG_TOKEN}@${CI_SERVER_HOST}/${CI_PROJECT_PATH}.git"
+    - git tag -a "v$BUILD_VERSION" -m "Release v$BUILD_VERSION"
+    - git push origin "v$BUILD_VERSION"
+    - echo "Created and pushed git tag v$BUILD_VERSION."

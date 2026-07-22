@@ -24,6 +24,10 @@ RUN dotnet publish "./webapp01.csproj" -c $BUILD_CONFIGURATION -o /app/publish /
 
 # This stage is used in production or when running from VS in regular mode (Default when not using the Debug configuration)
 FROM base AS final
+# Semantic build version stamped by the CI/CD pipelines (GitHub, Azure DevOps, GitLab).
+# Defaults to 0.0.0 so source-only builds (e.g. container security scans) still succeed.
+ARG APP_VERSION=0.0.0
+ENV APP_VERSION=$APP_VERSION
 WORKDIR /app
 COPY --from=publish /app/publish .
 ENTRYPOINT ["dotnet", "webapp01.dll"]
