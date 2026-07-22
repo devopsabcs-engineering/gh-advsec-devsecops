@@ -11,15 +11,10 @@ resource azurerm_kubernetes_cluster "k8s_cluster" {
     vm_size    = "Standard_D2_v2"
     node_count = 2
   }
-  addon_profile {
-    oms_agent {
-      enabled = false
-    }
-    kube_dashboard {
-      enabled = true
-    }
-  }
-  role_based_access_control {
-    enabled = false
+  
+  # Enable Azure RBAC for Kubernetes authorization
+  azure_active_directory_role_based_access_control {
+    managed            = true
+    azure_rbac_enabled = true
   }
 }

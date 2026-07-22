@@ -42,26 +42,26 @@ resource azurerm_network_security_group "bad_sg" {
   resource_group_name = azurerm_resource_group.example.name
 
   security_rule {
-    access                 = "Allow"
-    direction              = "Inbound"
-    name                   = "AllowSSH"
-    priority               = 200
-    protocol               = "TCP"
-    source_address_prefix  = "*"
-    source_port_range      = "*"
-    destination_port_range = "22-22"
+    access                     = "Allow"
+    direction                  = "Inbound"
+    name                       = "AllowSSH"
+    priority                   = 200
+    protocol                   = "TCP"
+    source_address_prefix      = var.admin_ip_range
+    source_port_range          = "*"
+    destination_port_range     = "22"
     destination_address_prefix = "*"
   }
 
   security_rule {
-    access                 = "Allow"
-    direction              = "Inbound"
-    name                   = "AllowRDP"
-    priority               = 300
-    protocol               = "TCP"
-    source_address_prefix  = "*"
-    source_port_range      = "*"
-    destination_port_range = "3389-3389"
+    access                     = "Allow"
+    direction                  = "Inbound"
+    name                       = "AllowRDP"
+    priority                   = 300
+    protocol                   = "TCP"
+    source_address_prefix      = var.admin_ip_range
+    source_port_range          = "*"
+    destination_port_range     = "3389"
     destination_address_prefix = "*"
   }
 }
