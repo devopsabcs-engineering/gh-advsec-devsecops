@@ -74,7 +74,6 @@ jobs:
           $appServicePlanName = "asp-gh-aspnet-webapp-$instanceNumber"
           $webAppName = "app-gh-aspnet-webapp-$instanceNumber"
           $resourceGroupName = "rg-gh-aspnet-webapp-$instanceNumber"
-          $containerImageName = "webapp01:latest"
 
           # Deployment name based only on instance number for idempotence
           $deploymentName = "deploy-infra-$instanceNumber"
@@ -98,7 +97,6 @@ jobs:
             --parameters appServicePlanName=$appServicePlanName `
             --parameters webAppName=$webAppName `
             --parameters location=$location `
-            --parameters containerImageName=$containerImageName `
             --parameters resourceGroupName=$resourceGroupName `
             --query "properties.outputs" -o json
 
